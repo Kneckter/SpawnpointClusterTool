@@ -6,9 +6,7 @@ This script was written with Python2.7 in mind. Use the Py3 branch for Python3.6
 
 To get started using the python script, you can download the files or `git clone` this repository branch.
 
-Create a JSON file of your spawnpoint coordinates that include latitude and longitude. If you use HeidiSQL or MySQL Workbench, choose to export your query's blob as JSON. There are also CSV to JSON converters if you go that route. 
-
-Below are a few SQL commands to give you an idea of what to export:
+Create a coordinates file of your spawnpoint coordinates that include latitude and longitude separated by a comma, one pair per line. Below are a few SQL commands to give you an idea of what to export:
 
 A) You can export all spawnpoints if you do not have a big split-up area and want to optimize spawnpoint checking.
 ```SQL
@@ -47,7 +45,12 @@ WHERE despawn_sec = NULL AND ST_CONTAINS(ST_GEOMFROMTEXT('POLYGON((
 ))'), point(spawnpoint.lat, spawnpoint.lon));
 ```
 
-Once you have the files on your system you can run the command `python cluster.py infile.json` to to have it evaluate the coordinates and output them to outfile.txt. 
+Once you have the files on your system you can run the command `python cluster.py infile.txt` to to have it evaluate the coordinates and output them to outfile.txt. Use the `--help` flag to see the avaliable flags, which are also below:
+
+- 'filename', This is not a flag but the name of the input file.
+- '-oc', '--output-clusters', The filename to write cluster data to (defaults to outfile.txt).
+- '-r', '--radius', type=float, Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).
+- '-ms', '--min-spawnpoints', The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).
 
 ## Notes
 This has been tested on Ubuntu 18.04. 
