@@ -1,3 +1,4 @@
 *.pyc
 *.json
 *.txt
+config.ini

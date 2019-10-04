@@ -1,57 +1,42 @@
 # SpawnpointClusterTool
-This tool is used to take a list of coordinates (spawnpoints) and output the center location that covers 3 or more points. This project is written in Python and based on the spawnpoint functionality used in the RocketMap spawnpoint routing functions.
+This tool is used to take a list of coordinates (spawnpoints, gyms, pokestops) and output the center location that covers a configurable amount of points. The output will also be sorted using the TSP formula. This project is written in Python and based on the spawnpoint functionality used in the RocketMap spawnpoint routing functions.
 
 # Get Started With Python
-This script was written with Python2.7 in mind. Use the Py3 branch for Python3.6.
+This script was written with Python3.6.
 
-To get started using the python script, you can download the files or `git clone` this repository branch.
+To get started using the python script, you can download the files or `git clone https://github.com/Kneckter/SpawnpointClusterTool` this repository.
 
-Create a coordinates file of your spawnpoint coordinates that include latitude and longitude separated by a comma, one pair per line. Below are a few SQL commands to give you an idea of what to export:
+You will need a few Python3 modules to run this script so run this command: `sudo -H pip3 install -U configargparse==0.14.0 peewee==3.9.6 matplotlib`
 
-A) You can export all spawnpoints if you do not have a big split-up area and want to optimize spawnpoint checking.
-```SQL
-SELECT lat AS latitude, lon AS longitude
-FROM spawnpoint;
-```
+You no longer need to create lists of coordinate pairs, this tool has settings to connect to your database and read a geofence that is part of a questing instance. 
+Make a copy of the `config.ini.example` and rename it as `config.ini`. Fill in the database settings for your RDM database.
 
-B) You can export all spawnpoints that do not have a despawn timer so you can complete those.
-```SQL
-SELECT lat AS latitude, lon AS longitude
-FROM spawnpoint 
-WHERE despawn_sec = NULL;
-```
+Review the other options in the config file. All options in the config file can be passed on the command line.
 
-C) You can export all spawnpoints within a geofence to split-up your routes with optimized spawnpoint locations. Replace the coordinates inside the POLYGON with your geofence information.
-```SQL
-SELECT lat AS latitude, lon AS longitude
-FROM spawnpoint 
-WHERE ST_CONTAINS(ST_GEOMFROMTEXT('POLYGON((
-33.12 18.24,
-33.13 18.25,
-33.14 18.26,
-33.15 18.27
-))'), point(spawnpoint.lat, spawnpoint.lon));
-```
+- '--db-name', Name of the database to be used (required).
+- '--db-user', Username for the database (required).
+- '--db-pass', Password for the database (required).
+- '--db-host', IP or hostname for the database (defaults to 127.0.0.1).
+- '--db-port', Port for the database (defaults to 3306).
 
-D) You can export all spawnpoints within a geofence that do not have a despawn timer to gather specifc TTH. Replace the coordinates inside the POLYGON with your geofence information.
-```SQL
-SELECT lat AS latitude, lon AS longitude
-FROM spawnpoint 
-WHERE despawn_sec = NULL AND ST_CONTAINS(ST_GEOMFROMTEXT('POLYGON((
-33.12 18.24,
-33.13 18.25,
-33.14 18.26,
-33.15 18.27
-))'), point(spawnpoint.lat, spawnpoint.lon));
-```
+- '-cf', '--config', Set configuration file (defaults to ./config.ini).')
+- '-of', '--output', The base filename without extension to write cluster data to (defaults to outfile).
+- '-r', '--radius', Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).
+- '-ms', '--min', The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).
+- '-geo', '--geofence', The name of the RDM quest instance to use as a geofence (required).
 
-Once you have the files on your system you can run the command `python cluster.py infile.txt` to to have it evaluate the coordinates and output them to outfile.txt. Use the `--help` flag to see the avaliable flags, which are also below:
+- '-sp', '--spawnpoints', Have spawnpoints included in cluster search (defaults to false).
+- '-ct', '--timers', Only use spawnpoints with confirmed timers (defaults to false).
+- '-ps', '--pokestops', Have pokestops included in the cluster search (defaults to false).
+- '-gym', '--gyms', Have gyms included in the cluster search (defaults to false).
 
-- 'filename', This is not a flag but the name of the input file.
-- '-oc', '--output-clusters', The filename to write cluster data to (defaults to outfile.txt).
-- '-r', '--radius', type=float, Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).
-- '-ms', '--min-spawnpoints', The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).
+You must specify an instance to use in the `geofence` parameter so the script can search for it. Instances with multiple geofences are acceptable. The script will create output files for each geofence.
+
+You must choose to include either spawnpoints, gyms, or pokestops for the query.
+
+You cannot enable confirmed timers without spawnpoints.
+
+Once you have the config file on your system you can run the command `python3 cluster.py` to to have it evaluate the coordinates, sort them by TSP, and output them to outfile file. Use the `--help` flag to see the avaliable flags.
 
 ## Notes
 This has been tested on Ubuntu 18.04. 
-

@@ -1,0 +1,14 @@
+#db-name:                       # Required for mysql
+#db-user:                       # Required for mysql
+#db-pass:                       # Required for mysql
+#db-host:                       # Required for mysql (default=127.0.0.1)
+#db-port:                       # Required for mysql (default=3306)
+#geofence:                      # The name of the RDM quest instance to use as a geofence (required).
+
+#spawnpoints                    # Have spawnpoints included in the cluster search (defaults to false).
+#pokestops                      # Have pokestops included in the cluster search (defaults to false).
+#gyms                           # Have gyms included in the cluster search (defaults to false).
+
+#output:                        # The base filename without extension to write cluster data to (defaults to outfile).
+#radius:                        # Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).
+#min:                           # The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).
