@@ -64,9 +64,7 @@ def check_cluster(spawnpoint, cluster, radius):
         
     return True
     
-def cluster(spawnpoints, radius):
-    clusters = []
-
+def cluster(spawnpoints, radius, clusters):
     for p in spawnpoints:
         if len(clusters) == 0:
             clusters.append(Spawncluster(p))
@@ -78,7 +76,7 @@ def cluster(spawnpoints, radius):
             else:
                 c = Spawncluster(p)
                 clusters.append(c)
-        
+
     return clusters
 
 def getInstance(db):
@@ -92,46 +90,90 @@ def getInstance(db):
     
     return instance
 
-def getPoints(args, db, coordstr):
-    with db:
-        cmd_sql = 'SELECT * FROM ('
-        if args.spawnpoints:
-            cmd_sql = cmd_sql + '''
-                SELECT lat,lon
-                FROM spawnpoint
-                WHERE ST_CONTAINS(
+def getPoints(geofences, db, args):
+    scmd_sql=''
+    pcmd_sql=''
+    gcmd_sql=''
+    numgeos = len(geofences)
+    j=1
+
+    if args.spawnpoints:
+        scmd_sql = '''
+            SELECT lat,lon
+            FROM spawnpoint
+            WHERE
+            '''
+        if args.timers:
+            scmd_sql = scmd_sql + ' despawn_sec IS NOT NULL AND ('
+        else:
+            scmd_sql = scmd_sql + ' ('
+
+    if args.pokestops:
+        pcmd_sql = '''
+            SELECT lat,lon
+            FROM pokestop
+            WHERE (
+            '''
+
+    if args.gyms:
+        gcmd_sql = '''
+            SELECT lat,lon
+            FROM gym
+            WHERE (
+            '''
+
+    for g in geofences:
+    # Loop through the geofences
+        numcoords = len(g) # Get the number of coordinates in this geofence
+        i=1
+        coordstr=''
+        for c in g:
+            # Loop through the coordinates in each geofence and build the string for the query
+            if i < numcoords:
+                coord = str(c['lat'])+' '+str(c['lon'])+',\n'
+                i=i+1
+            else:
+                coord = str(c['lat'])+' '+str(c['lon'])
+            coordstr = coordstr + coord
+
+        if j == 1:
+            coord_sql = '''
+                ST_CONTAINS(
                 ST_GEOMFROMTEXT('POLYGON((
                 %s
-                ))'), point(spawnpoint.lat, spawnpoint.lon))
                 ''' % coordstr
-            if args.timers:
-                cmd_sql = cmd_sql + ' AND despawn_sec IS NOT NULL'
-        if args.pokestops:
-            if args.spawnpoints:
-                cmd_sql = cmd_sql + ' UNION '
-            cmd_sql = cmd_sql + '''
-                SELECT lat,lon
-                FROM pokestop
-                WHERE ST_CONTAINS(
+            j=j+1
+        else:
+            coord_sql = '''
+                OR ST_CONTAINS(
                 ST_GEOMFROMTEXT('POLYGON((
                 %s
-                ))'), point(pokestop.lat, pokestop.lon))
-                ''' % coordstr
-        if args.gyms:
-            if args.spawnpoints or args.pokestops:
-                cmd_sql = cmd_sql + ' UNION '
-            cmd_sql = cmd_sql + '''
-                SELECT lat,lon
-                FROM gym
-                WHERE ST_CONTAINS(
-                ST_GEOMFROMTEXT('POLYGON((
-                %s
-                ))'), point(gym.lat, gym.lon))
                 ''' % coordstr
 
-        cmd_sql = cmd_sql + ') x;'
-        pointssql = db.execute_sql(cmd_sql)
-        return pointssql
+        scmd_sql = scmd_sql + coord_sql + "))'), point(spawnpoint.lat, spawnpoint.lon)) "
+        pcmd_sql = pcmd_sql + coord_sql + "))'), point(pokestop.lat, pokestop.lon)) "
+        gcmd_sql = gcmd_sql + coord_sql + "))'), point(gym.lat, gym.lon)) "
+
+    scmd_sql = scmd_sql + ");"
+    pcmd_sql = pcmd_sql + ");"
+    gcmd_sql = gcmd_sql + ");"
+
+    try:
+        spawnpointssql = db.execute_sql(scmd_sql)
+    except:
+        spawnpointssql=''
+
+    try:
+        pokestoppointssql = db.execute_sql(pcmd_sql)
+    except:
+        pokestoppointssql=''
+
+    try:
+        gympointssql = db.execute_sql(gcmd_sql)
+    except:
+        gympointssql=''
+
+    return spawnpointssql,pokestoppointssql,gympointssql
 
 def tspsolver(filename):
     tsppoints = []
@@ -161,6 +203,7 @@ def tspsolver(filename):
 def main(args):
     radius = args.radius
     ms = args.min
+    mspoints = []
 
     print('Connecting to MySQL database {} on {}:{}...\n'.format(args.db_name, args.db_host, args.db_port))
     db = peewee.MySQLDatabase(
@@ -183,23 +226,11 @@ def main(args):
 
     geofences = datajson['area'] # Get the geofence(s) from the json
 
-    for g in geofences:
-        # Loop through the geofences
-        numcoords = len(g) # Get the number of coordinates in this geofence
-        i=1
-        coordstr=''
-        for c in g:
-            # Loop through the coordinates in each geofence and build the string for the query
-            if i < numcoords:
-                #print(g.index(c))
-                coord = str(c['lat'])+' '+str(c['lon'])+',\n'
-                i=i+1
-            else:
-                coord = str(c['lat'])+' '+str(c['lon'])
-            coordstr = coordstr + coord
+    spawnpointssql,pokestoppointssql,gympointssql = getPoints(geofences, db, args)
+    start_time = time.time()
 
-        pointssql = getPoints(args, db, coordstr)
-        points = pointssql.fetchall()
+    if args.spawnpoints:
+        points = spawnpointssql.fetchall()
 
         rows = []
         for p in points:
@@ -207,9 +238,8 @@ def main(args):
 
         spawnpoints = [Spawnpoint(x) for x in rows]
 
-        print('Processing', len(spawnpoints), 'points...')
-        start_time = time.time()
-        clusters = cluster(spawnpoints, radius)
+        print('Processing', len(spawnpoints), 'spawnpoints...')
+        clusters = cluster(spawnpoints, radius, [])
 
         try:
             for c in clusters:
@@ -221,23 +251,105 @@ def main(args):
 
         rows = ''
         rowcount = 0
-        filename = str(args.output)+str(geofences.index(g))+'.txt'
+        filename = str(args.output)+'.txt'
+        f = open(filename, 'w')
+
+        temp=0
+        for c in clusters:
+            temp=temp+1
+            if len([x.serialize() for x in c]) >= ms:
+                rows = str(str(c.centroid[0]) + ',' + str(c.centroid[1]) +'\n')
+                mspoints.append(c)
+                f.write(str(rows))
+                rowcount += 1
+        f.close()
+        print('{} clusters with {} or more spawnpoints in them.\n'.format(rowcount, ms))
+
+    if args.pokestops:
+        points = pokestoppointssql.fetchall()
+
+        rows = []
+        for p in points:
+            rows.append(p)
+
+        spawnpoints = [Spawnpoint(x) for x in rows]
+
+        print('Processing', len(spawnpoints), 'pokestops...')
+        clusters = cluster(spawnpoints, args.raidradius, mspoints)
+
+        try:
+            for c in clusters:
+                for p in c:
+                    assert utils.distance(p.position, c.centroid) <= args.raidradius
+        except AssertionError:
+            print('error: something\'s seriously broken.')
+            raise
+
+        rows = ''
+        mspoints = []
+        rowcount = 0
+        filename = str(args.output)+'.txt'
         f = open(filename, 'w')
 
         for c in clusters:
-            if len([x.serialize() for x in c]) > ms:
+            if len([x.serialize() for x in c]) >= args.minraid:
+                rows = str(str(c.centroid[0]) + ',' + str(c.centroid[1]) +'\n')
+                mspoints.append(c)
+                f.write(str(rows))
+                rowcount += 1
+        f.close()
+        if args.spawnpoints:
+            print('{} clusters with spawnpoints and with {} or more pokestops in them.\n'.format(rowcount, args.minraid))
+        else:
+            print('{} clusters with {} or more pokestops in them.\n'.format(rowcount, args.minraid))
+
+    if args.gyms:
+        points = gympointssql.fetchall()
+
+        rows = []
+        for p in points:
+            rows.append(p)
+
+        spawnpoints = [Spawnpoint(x) for x in rows]
+
+        print('Processing', len(spawnpoints), 'gyms...')
+        clusters = cluster(spawnpoints, args.raidradius, mspoints)
+
+        try:
+            for c in clusters:
+                for p in c:
+                    assert utils.distance(p.position, c.centroid) <= args.raidradius
+        except AssertionError:
+            print('error: something\'s seriously broken.')
+            raise
+
+        rows = ''
+        mspoints = []
+        rowcount = 0
+        filename = str(args.output)+'.txt'
+        f = open(filename, 'w')
+
+        for c in clusters:
+            if len([x.serialize() for x in c]) >= args.minraid:
                 rows = str(str(c.centroid[0]) + ',' + str(c.centroid[1]) +'\n')
                 f.write(str(rows))
                 rowcount += 1
         f.close()
-        print('{} clusters with more than {} points in them.'.format(rowcount, ms))
+        if args.spawnpoints and args.pokestops:
+            print('{} clusters with spawnpoints, pokestops, and with {} or more gyms in them.\n'.format(rowcount, args.minraid))
+        elif args.spawnpoints:
+            print('{} clusters with spawnpoints and with {} or more gyms in them.\n'.format(rowcount, args.minraid))
+        elif args.pokestops:
+            print('{} clusters with pokestops and with {} or more gyms in them.\n'.format(rowcount, args.minraid))
+        else:
+            print('{} clusters with more than {} gyms in them.\n'.format(rowcount, args.minraid))
 
-        print('Sorting coordinates...')
-        tspsolver(filename)
+    print('Sorting coordinates...\n')
+    tspsolver(filename)
 
-        end_time = time.time()
-        print('Coordinates written to the {} file.'.format(filename))
-        print('Completed in {:.2f} seconds.\n'.format(end_time - start_time))
+    end_time = time.time()
+    print('Coordinates written to the {} file.'.format(filename))
+    print('Completed in {:.2f} seconds.\n'.format(end_time - start_time))
 
     # Done with the geofences, close it down
     db.close()
@@ -250,16 +362,18 @@ if __name__ == "__main__":
         defaultconfigfiles = [os.getenv('servAP_CONFIG', os.path.join(os.path.dirname(__file__), './config.ini'))]
     parser = configargparse.ArgParser(default_config_files=defaultconfigfiles,auto_env_var_prefix='servAP_',description='Cluster close spawnpoints.')
     parser.add_argument('-cf', '--config', is_config_file=True, help='Set configuration file (defaults to ./config.ini).')
-
     parser.add_argument('-of', '--output', help='The base filename without extension to write cluster data to (defaults to outfile).', default='outfile')
-    parser.add_argument('-r', '--radius', type=float, help='Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).', default=70)
-    parser.add_argument('-ms', '--min', type=int, help='The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).', default=3)
     parser.add_argument('-geo', '--geofence', help='The name of the RDM quest instance to use as a geofence (required).', required=True)
 
     parser.add_argument('-sp', '--spawnpoints', help='Have spawnpoints included in cluster search (defaults to false).', action='store_true', default=False)
+    parser.add_argument('-r', '--radius', type=float, help='Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).', default=70)
+    parser.add_argument('-ms', '--min', type=int, help='The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).', default=3)
     parser.add_argument('-ct', '--timers', help='Only use spawnpoints with confirmed timers (defaults to false).', action='store_true', default=False)
+
     parser.add_argument('-ps', '--pokestops', help='Have pokestops included in the cluster search (defaults to false).', action='store_true', default=False)
     parser.add_argument('-gym', '--gyms', help='Have gyms included in the cluster search (defaults to false).', action='store_true', default=False)
+    parser.add_argument('-mr', '--minraid', type=int, help='The minimum amount of gyms or pokestops to include in clusters that are written out (defaults to 1).', default=1)
+    parser.add_argument('-rr', '--raidradius', type=float, help='Maximum radius (in meters) where gyms or pokestops are considered close (defaults to 500).', default=500)
 
     group = parser.add_argument_group('Database')
     group.add_argument('--db-name', help='Name of the database to be used (required).', required=True)
