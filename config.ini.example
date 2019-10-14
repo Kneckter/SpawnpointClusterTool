@@ -11,6 +11,7 @@
 #radius:                        # Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).
 #min:                           # The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).
 #timers                         # Only use spawnpoints with confirmed timers (defaults to false).
+#lastupdated:                    # Only use spawnpoints that were last updated in x hours. Use 0 to disable this option (defaults to 0).
 
 
 #pokestops                      # Have pokestops included in the cluster search (defaults to false).
