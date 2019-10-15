@@ -11,10 +11,13 @@
 #radius:                        # Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).
 #min:                           # The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).
 #timers                         # Only use spawnpoints with confirmed timers (defaults to false).
-#lastupdated:                    # Only use spawnpoints that were last updated in x hours. Use 0 to disable this option (defaults to 0).
-
+#lastupdated:                   # Only use spawnpoints that were last updated in x hours. Use 0 to disable this option (defaults to 0).
 
 #pokestops                      # Have pokestops included in the cluster search (defaults to false).
 #gyms                           # Have gyms included in the cluster search (defaults to false).
 #minraid:                       # The minimum amount of gyms or pokestops to include in clusters that are written out (defaults to 1).
 #raidradius:                    # Maximum radius (in meters) where gyms or pokestops are considered close (defaults to 500).
+
+#genivlist                      # Skip all the normal functionality and just generate an IV list using RDM data (defaults to false).
+#maxpoke:                       # The maximum number to be used for the end of the IV list (defaults to 809).
+#excludepoke:[1,2,3]            # List of Pokemon to exclude from the IV list. Specified as Pokemon ID (defaults to none).

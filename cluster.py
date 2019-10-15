@@ -411,35 +411,110 @@ def main(args):
     db.close()
     print('Database connection closed')
 
+def genivs(args):
+    print('Connecting to MySQL database {} on {}:{}...\n'.format(args.db_name, args.db_host, args.db_port))
+    db = peewee.MySQLDatabase(
+        args.db_name,
+        user=args.db_user,
+        password=args.db_pass,
+        host=args.db_host,
+        port=args.db_port,
+        charset='utf8mb4')
+    db.connect()
+
+    with db:
+        cmd_sql = '''
+            SELECT pokemon_id,SUM(`count`) AS `count`
+            FROM pokemon_stats
+            GROUP BY pokemon_id
+            ORDER BY `count` ASC;
+            ''' 
+
+        try:
+            intlist = db.execute_sql(cmd_sql)
+            intlistsql = intlist.fetchall()
+            print('{} pokemon found in the pokemon_stats table.\n'.format(len(intlistsql)))
+        except:
+            print('Querying the pokemon_stats table failed. Exiting...')
+            sys.exit(1)
+
+        # Only keep the dex numbers
+        datajson = []
+        for row in intlistsql:
+            datajson.append(row[0])
+
+        # Move Unown to the top of the list
+        print('Setting unown to the top of the list.\n')
+        if 201 in datajson:
+            datajson.remove(201)
+        datajson.insert(0,201)
+
+        # Loop through the list to fill in the blanks
+        print('Adding missing IDs up to {}.\n'.format(args.maxpoke))
+        i = 1
+        while i <= args.maxpoke:
+            if i not in datajson:
+                datajson.insert(1,i)
+            i=i+1
+
+        # Loop through and remove the excluded pokemon
+        print('Removing IDs: {}.\n'.format(args.excludepoke))
+        for idex in args.excludepoke:
+            if int(idex) in datajson:
+                datajson.remove(int(idex))
+
+        # Write output to a file
+        filename = str(args.output)+'.txt'
+        f = open(filename, 'w')
+
+        for d in datajson:
+            f.write(str(d)+'\n')
+        f.close()
+        print('IV list written to the {} file.'.format(filename))
+
 if __name__ == "__main__":
 
     defaultconfigfiles = []
     if '-cf' not in sys.argv and '--config' not in sys.argv:
         defaultconfigfiles = [os.getenv('servAP_CONFIG', os.path.join(os.path.dirname(__file__), './config.ini'))]
-    parser = configargparse.ArgParser(default_config_files=defaultconfigfiles,auto_env_var_prefix='servAP_',description='Cluster close spawnpoints.')
-    parser.add_argument('-cf', '--config', is_config_file=True, help='Set configuration file (defaults to ./config.ini).')
-    parser.add_argument('-of', '--output', help='The base filename without extension to write cluster data to (defaults to outfile).', default='outfile')
-    parser.add_argument('-geo', '--geofence', help='The name of the RDM quest instance to use as a geofence (required).', required=True)
 
-    parser.add_argument('-sp', '--spawnpoints', help='Have spawnpoints included in cluster search (defaults to false).', action='store_true', default=False)
-    parser.add_argument('-r', '--radius', type=float, help='Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).', default=70)
-    parser.add_argument('-ms', '--min', type=int, help='The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).', default=3)
-    parser.add_argument('-ct', '--timers', help='Only use spawnpoints with confirmed timers (defaults to false).', action='store_true', default=False)
-    parser.add_argument('-lu', '--lastupdated', type=int, help='Only use spawnpoints that were last updated in x hours. Use 0 to disable this option (defaults to 0).', default=0)
+    parser = configargparse.ArgParser(default_config_files=defaultconfigfiles,auto_env_var_prefix='servAP_',description='Cluster coordinate pairs that are close together.')
 
-    parser.add_argument('-ps', '--pokestops', help='Have pokestops included in the cluster search (defaults to false).', action='store_true', default=False)
-    parser.add_argument('-gym', '--gyms', help='Have gyms included in the cluster search (defaults to false).', action='store_true', default=False)
-    parser.add_argument('-mr', '--minraid', type=int, help='The minimum amount of gyms or pokestops to include in clusters that are written out (defaults to 1).', default=1)
-    parser.add_argument('-rr', '--raidradius', type=float, help='Maximum radius (in meters) where gyms or pokestops are considered close (defaults to 500).', default=500)
+    gensets = parser.add_argument_group('General Settings')
+    gensets.add_argument('-cf', '--config', is_config_file=True, help='Set configuration file (defaults to ./config.ini).')
+    gensets.add_argument('-of', '--output', help='The base filename without extension to write cluster data to (defaults to outfile).', default='outfile')
+    gensets.add_argument('-geo', '--geofence', help='The name of the RDM quest instance to use as a geofence (required).', required=True)
 
-    group = parser.add_argument_group('Database')
-    group.add_argument('--db-name', help='Name of the database to be used (required).', required=True)
-    group.add_argument('--db-user', help='Username for the database (required).', required=True)
-    group.add_argument('--db-pass', help='Password for the database (required).', required=True)
-    group.add_argument('--db-host', help='IP or hostname for the database (defaults to 127.0.0.1).', default='127.0.0.1')
-    group.add_argument('--db-port', help='Port for the database (defaults to 3306).', type=int, default=3306)
-    
+    spawns = parser.add_argument_group('Spawnpoints')
+    spawns.add_argument('-sp', '--spawnpoints', help='Have spawnpoints included in cluster search (defaults to false).', action='store_true', default=False)
+    spawns.add_argument('-r', '--radius', type=float, help='Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).', default=70)
+    spawns.add_argument('-ms', '--min', type=int, help='The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).', default=3)
+    spawns.add_argument('-ct', '--timers', help='Only use spawnpoints with confirmed timers (defaults to false).', action='store_true', default=False)
+    spawns.add_argument('-lu', '--lastupdated', type=int, help='Only use spawnpoints that were last updated in x hours. Use 0 to disable this option (defaults to 0).', default=0)
+
+    sng = parser.add_argument_group('Stops and Gyms')
+    sng.add_argument('-ps', '--pokestops', help='Have pokestops included in the cluster search (defaults to false).', action='store_true', default=False)
+    sng.add_argument('-gym', '--gyms', help='Have gyms included in the cluster search (defaults to false).', action='store_true', default=False)
+    sng.add_argument('-mr', '--minraid', type=int, help='The minimum amount of gyms or pokestops to include in clusters that are written out (defaults to 1).', default=1)
+    sng.add_argument('-rr', '--raidradius', type=float, help='Maximum radius (in meters) where gyms or pokestops are considered close (defaults to 500).', default=500)
+
+    dbsets = parser.add_argument_group('Database')
+    dbsets.add_argument('--db-name', help='Name of the database to be used (required).', required=True)
+    dbsets.add_argument('--db-user', help='Username for the database (required).', required=True)
+    dbsets.add_argument('--db-pass', help='Password for the database (required).', required=True)
+    dbsets.add_argument('--db-host', help='IP or hostname for the database (defaults to 127.0.0.1).', default='127.0.0.1')
+    dbsets.add_argument('--db-port', help='Port for the database (defaults to 3306).', type=int, default=3306)
+
+    ivl = parser.add_argument_group('IV List',description='No cluster options will be recognized for the below options.')
+    ivl.add_argument('-giv', '--genivlist', help='Skip all the normal functionality and just generate an IV list using RDM data (defaults to false).', action='store_true', default=False)
+    ivl.add_argument('-mp', '--maxpoke', type=int, help='The maximum number to be used for the end of the IV list (defaults to 809).', default=809)
+    ivl.add_argument('--excludepoke', help=('List of Pokemon to exclude from the IV list. Specified as Pokemon ID. Use this only in the config file (defaults to none).'), action='append', default=[])
+
     args = parser.parse_args()
+
+    if args.genivlist:
+        genivs(args)
+        sys.exit(1)
 
     if not args.spawnpoints and not args.pokestops and not args.gyms:
         print('You must choose to include either spawnpoints, gyms, or pokestops for the query.')
@@ -455,6 +530,8 @@ if __name__ == "__main__":
 # Maybe add a circle generator for bootstrapping
 # Maybe add an IV list generator
 # Maybe change logic to look for max spawns first and then find lower amounts of spawns until the min. as per Mermao
+
+# There is pokemon ID 0 in my poke_stats table. IDK if this will be an issue later
 
 # As reported by Hunch. He got this warning with MySQL 5.7
 # The warning is probably fine because it doesn't stop the queries.
