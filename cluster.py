@@ -1,6 +1,8 @@
-import configargparse,time,sys,os,peewee,json,numpy,matplotlib
+import configargparse,time,sys,os,peewee,json,numpy,matplotlib,geopy
 from tsp_solver import solve_tsp
 from math import acos, atan2, cos, degrees, radians, sin, sqrt
+from geopy import distance
+from matplotlib.path import Path
 
 class utils:
     def distance(pos1, pos2):
@@ -122,6 +124,12 @@ def getInstance(db):
         inttype = db.execute_sql(cmd_sql)
         inttypesql = inttype.fetchone()
 
+        try:
+            datajson = inttypesql[0] # Get the first item in the tuple and convert it to json
+        except:
+            print('No instance found with name {}.'.format(args.geofence))
+            sys.exit(1)
+
         if inttypesql[0] == 'auto_quest' or  inttypesql[0] == 'pokemon_iv':
             cmd_sql = '''
                 SELECT data
@@ -146,11 +154,21 @@ def getPoints(geofences, db, args):
             FROM spawnpoint
             WHERE
             '''
-        if args.timers:
+        if args.timers == 'yes':
             scmd_sql = scmd_sql + ' despawn_sec IS NOT NULL AND '
+        elif args.timers == 'no':
+            scmd_sql = scmd_sql + ' despawn_sec IS NULL AND '
+        elif args.timers == 'all':
+            # No change needed
+            scmd_sql = scmd_sql
+        elif args.timers != 'yes' or args.timers != 'no' or args.timers != 'all':
+            print('{} is not a valid argument for --timers'.format(args.timers))
+            sys.exit(1)
+
         if args.lastupdated > 0:
             updatetimer = time.time() - (args.lastupdated * 3600)
             scmd_sql = scmd_sql + ' updated > %s AND ' % updatetimer
+
         scmd_sql = scmd_sql + ' ('
 
     if args.pokestops:
@@ -250,6 +268,41 @@ def tspsolver(filename):
         rows = tsppoints[i][0].astype(str) + ',' + tsppoints[i][1].astype(str) + '\n'
         f.write(str(rows))
     f.close()
+
+def get_new_coords(init_loc, distance, bearing):
+    origin = geopy.Point(init_loc[0], init_loc[1])
+    destination = geopy.distance.distance(kilometers=distance).destination(origin, bearing)
+    return (destination.latitude, destination.longitude)
+
+def get_geofenced_coordinates(coordinates, geofenced_areas, step_distance):
+    print('Found {} circles that cover the geofenced area. Removing the ones outside the geofence...\n'.format(len(coordinates)))
+    geofenced_coordinates = []
+    for c in coordinates:
+        # Coordinate is geofenced if in one geofenced area.
+        if in_area(c, geofenced_areas):
+            geofenced_coordinates.append(c)
+        else:
+            # Do a check if the radius is in the geofence even if the center is not
+            for i in range(0, 6):
+                star_loc = get_new_coords(c, step_distance, 90 + 60 * i)
+                if in_area(star_loc, geofenced_areas):
+                    geofenced_coordinates.append(c)
+                    break
+
+    return geofenced_coordinates
+
+def in_area(coordinate, area):
+    point = {'lat': coordinate[0], 'lon': coordinate[1]}
+    polygon = area
+    pointTuple = (point['lat'], point['lon'])
+    polygonTupleList = []
+    for c in polygon:
+        coordinateTuple = (c['lat'], c['lon'])
+        polygonTupleList.append(coordinateTuple)
+
+    polygonTupleList.append(polygonTupleList[0])
+    path = Path(polygonTupleList)
+    return path.contains_point(pointTuple)
 
 def main(args):
     radius = args.radius
@@ -400,8 +453,14 @@ def main(args):
         else:
             print('{} clusters with more than {} gyms in them.\n'.format(rowcount, args.minraid))
 
-    print('Sorting coordinates...\n')
-    tspsolver(filename)
+    if args.nosort:
+        print('Skipping the sort...\n')
+    else:
+        print('Sorting coordinates...\n')
+        try:
+            tspsolver(filename)
+        except:
+            print("Could not sort this many coordinates due to your system's limits.\n")
 
     end_time = time.time()
     print('Coordinates written to the {} file.'.format(filename))
@@ -472,6 +531,118 @@ def genivs(args):
         f.close()
         print('IV list written to the {} file.'.format(filename))
 
+def createcircles(args):
+    print('Connecting to MySQL database {} on {}:{}...\n'.format(args.db_name, args.db_host, args.db_port))
+    db = peewee.MySQLDatabase(
+        args.db_name,
+        user=args.db_user,
+        password=args.db_pass,
+        host=args.db_host,
+        port=args.db_port,
+        charset='utf8mb4')
+    db.connect()
+
+    # Get the instance from args and query the DB for spawnpoints
+    instance = getInstance(db)
+    instancesql = instance.fetchone() # Get the first row in the cursor object
+    try:
+        datajson = json.loads(instancesql[0]) # Get the first item in the tuple and convert it to json
+    except:
+        print('No data was returned for the instance name {}.'.format(args.geofence))
+        sys.exit(1)
+
+    centroid = []
+    maxdistance = []
+    i=0
+    geofences = datajson['area'] # Get the geofence(s) from the json
+    for fence in geofences:
+        firstpt = fence[0]
+        lastpt = fence[len(fence)-1]
+        if firstpt != lastpt:
+            fence.append(firstpt)
+            print('Updated last point in geofence to match the first point')
+
+        # Calculate the center of the geofences for the starting location
+        xpt = [p['lat'] for p in fence]
+        ypt = [p['lon'] for p in fence]
+        centroid.append((sum(xpt) / len(fence), sum(ypt) / len(fence)))
+
+        # Calculate the max distance from the edge so we can set the step limit
+        maxdistance.append(0)
+        for p in fence:
+            dist = geopy.distance.vincenty(centroid[i], (p['lat'],p['lon'])).m
+            if dist > maxdistance[i]:
+                maxdistance[i] = dist
+        i=i+1
+    print('Generating {}m circles for {} geofence(s)...\n'. format(args.radius, len(geofences)))
+
+    start_time = time.time()
+
+    # Process each geofence separately so we can reduce overlap
+    endresults = []
+    numresults = 0
+    ii=0
+    for fence in geofences:
+        # dist between column centers
+        step_distance = args.radius/1000
+        step_limit = int((maxdistance[ii]/args.radius)+1) # A step is "(step_limit * step_distance) + step_distance/2". Each step basically adds a layer of 70m points to the calculation
+        scan_location = centroid[ii] # This is the center of each geofence
+        ii=ii+1
+
+        xdist = sqrt(3) * step_distance
+
+        results = []
+        loc = scan_location
+        results.append((loc[0], loc[1]))
+        # This will loop thorugh all the rings in the hex from the centre
+        # moving outwards
+        for ring in range(1, step_limit):
+            for i in range(0, 6):
+                # star_locs will contain the locations of the 6 vertices of
+                # the current ring (90,150,210,270,330 and 30 degrees from
+                # origin) to form a star
+                star_loc = get_new_coords(scan_location, xdist * ring, 90 + 60 * i)
+                for j in range(0, ring):
+                    # Then from each point on the star, create locations
+                    # towards the next point of star along the edge of the
+                    # current ring
+                    loc = get_new_coords(star_loc, xdist * (j), 210 + 60 * i)
+                    results.append((loc[0], loc[1]))
+
+        numresults = numresults + len(results)
+        endresults.append(get_geofenced_coordinates(results, fence, step_distance))
+
+    #write to the file. They should already be sorted
+    rows = ''
+    rowcount = 0
+    filename = str(args.output)+'.txt'
+    f = open(filename, 'w')
+
+    for r in endresults:
+        for c in r:
+            rows = str(str(c[0]) + ',' + str(c[1]) +'\n')
+            f.write(str(rows))
+            rowcount += 1
+    f.close()
+
+    if args.nosort:
+        print('{} circles checked and {} circles with a {}m radius found in geofence(s). Skipping the sort...\n'.format(numresults, rowcount, args.radius))
+    else:
+        print('{} circles checked and {} circles with a {}m radius found in geofence(s). Sorting coordinates...\n'.format(numresults, rowcount, args.radius))
+        try:
+            tspsolver(filename)
+        except:
+            print("Could not sort this many coordinates due to your system's limits.\n")
+
+    end_time = time.time()
+    print('Circle coordinates written to the {} file.'.format(filename))
+    print('Completed in {:.2f} seconds.\n'.format(end_time - start_time))
+
+    # Done with the geofences, close it down
+    db.close()
+    print('Database connection closed')
+
+
 if __name__ == "__main__":
 
     defaultconfigfiles = []
@@ -480,16 +651,24 @@ if __name__ == "__main__":
 
     parser = configargparse.ArgParser(default_config_files=defaultconfigfiles,auto_env_var_prefix='servAP_',description='Cluster coordinate pairs that are close together.')
 
+    dbsets = parser.add_argument_group('Database')
+    dbsets.add_argument('--db-name', help='Name of the database to be used (required).', required=True)
+    dbsets.add_argument('--db-user', help='Username for the database (required).', required=True)
+    dbsets.add_argument('--db-pass', help='Password for the database (required).', required=True)
+    dbsets.add_argument('--db-host', help='IP or hostname for the database (defaults to 127.0.0.1).', default='127.0.0.1')
+    dbsets.add_argument('--db-port', help='Port for the database (defaults to 3306).', type=int, default=3306)
+
     gensets = parser.add_argument_group('General Settings')
     gensets.add_argument('-cf', '--config', is_config_file=True, help='Set configuration file (defaults to ./config.ini).')
+    gensets.add_argument('-geo', '--geofence', help='The name of the RDM quest instance to use as a geofence (required).')
     gensets.add_argument('-of', '--output', help='The base filename without extension to write cluster data to (defaults to outfile).', default='outfile')
-    gensets.add_argument('-geo', '--geofence', help='The name of the RDM quest instance to use as a geofence (required).', required=True)
+    gensets.add_argument('-ns', '--nosort', help='Do not sort the output from the search (defaults to false).', action='store_true', default=False)
 
     spawns = parser.add_argument_group('Spawnpoints')
     spawns.add_argument('-sp', '--spawnpoints', help='Have spawnpoints included in cluster search (defaults to false).', action='store_true', default=False)
     spawns.add_argument('-r', '--radius', type=float, help='Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).', default=70)
     spawns.add_argument('-ms', '--min', type=int, help='The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).', default=3)
-    spawns.add_argument('-ct', '--timers', help='Only use spawnpoints with confirmed timers (defaults to false).', action='store_true', default=False)
+    spawns.add_argument('-ct', '--timers', help='Choose whether to use confirmed spawn timers (yes), use unconfirmed timers (no), or all timers (all) (defaults to all).', default='all')
     spawns.add_argument('-lu', '--lastupdated', type=int, help='Only use spawnpoints that were last updated in x hours. Use 0 to disable this option (defaults to 0).', default=0)
 
     sng = parser.add_argument_group('Stops and Gyms')
@@ -498,55 +677,35 @@ if __name__ == "__main__":
     sng.add_argument('-mr', '--minraid', type=int, help='The minimum amount of gyms or pokestops to include in clusters that are written out (defaults to 1).', default=1)
     sng.add_argument('-rr', '--raidradius', type=float, help='Maximum radius (in meters) where gyms or pokestops are considered close (defaults to 500).', default=500)
 
-    dbsets = parser.add_argument_group('Database')
-    dbsets.add_argument('--db-name', help='Name of the database to be used (required).', required=True)
-    dbsets.add_argument('--db-user', help='Username for the database (required).', required=True)
-    dbsets.add_argument('--db-pass', help='Password for the database (required).', required=True)
-    dbsets.add_argument('--db-host', help='IP or hostname for the database (defaults to 127.0.0.1).', default='127.0.0.1')
-    dbsets.add_argument('--db-port', help='Port for the database (defaults to 3306).', type=int, default=3306)
-
     ivl = parser.add_argument_group('IV List',description='No cluster options will be recognized for the below options.')
     ivl.add_argument('-giv', '--genivlist', help='Skip all the normal functionality and just generate an IV list using RDM data (defaults to false).', action='store_true', default=False)
     ivl.add_argument('-mp', '--maxpoke', type=int, help='The maximum number to be used for the end of the IV list (defaults to 809).', default=809)
     ivl.add_argument('--excludepoke', help=('List of Pokemon to exclude from the IV list. Specified as Pokemon ID. Use this only in the config file (defaults to none).'), action='append', default=[])
+
+    cc = parser.add_argument_group('Create Circles',description='No cluster options will be recognized for the below options.')
+    cc.add_argument('-cc', '--circle', help='Create circles from a geofence instance. Requires -geo <name> and -r <#>. Sorting should be disabled (defaults to false).', action='store_true', default=False)
 
     args = parser.parse_args()
 
     if args.genivlist:
         genivs(args)
         sys.exit(1)
-
+    if not args.geofence:
+        print('You must specify a geofence to continue.')
+        sys.exit(1)
+    if args.circle:
+        createcircles(args)
+        sys.exit(1)
     if not args.spawnpoints and not args.pokestops and not args.gyms:
         print('You must choose to include either spawnpoints, gyms, or pokestops for the query.')
-        sys.exit(1)
-    if not args.spawnpoints and args.timers:
-        print('You cannot enable confirmed timers without spawnpoints.')
         sys.exit(1)
 
     main(args)
 
 # Maybe use the RDM API to write to an instance after the coordinates are sorted
 # Maybe add a geofence generator. If a geofence is generated, read it from the file to use it for clustering?
-# Maybe add a circle generator for bootstrapping
-# Maybe add an IV list generator
 # Maybe change logic to look for max spawns first and then find lower amounts of spawns until the min. as per Mermao
-
-# There is pokemon ID 0 in my poke_stats table. IDK if this will be an issue later
 
 # As reported by Hunch. He got this warning with MySQL 5.7
 # The warning is probably fine because it doesn't stop the queries.
 #   Warning: (3090, "Changing sql mode 'NO_AUTO_CREATE_USER' is deprecated. It will be removed in a future release.")
-
-# This error is caused if the geofence does not end with the starting coordinate or if mysql returns an error instead of data.
-# Added a check that will write the first point to the end of the geo if they aren't equal.
-#   File "cluster.py", line 233, in main
-#   points = spawnpointssql.fetchall()
-#   AttributeError: 'str' object has no attribute 'fetchall'
-
-# As reported by Fossi, instances with single brackets in "area" can cause the below error. 
-# Single bracket should not be used in RDM because it doesn't allow for multiple geofences.
-# This usually happens if someone tries to use a pokemon instance.
-# Added a check that it is either a quest or IV instance.
-#    File "cluster.py", line 133, in getPoints
-#    coord = str(c['lat'])+' '+str(c['lon'])+',\n'
-#    TypeError: string indices must be integers

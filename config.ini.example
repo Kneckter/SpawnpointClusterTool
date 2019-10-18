@@ -6,11 +6,12 @@
 
 #geofence:                      # The name of the RDM quest instance to use as a geofence (required).
 #output:                        # The base filename without extension to write cluster data to (defaults to outfile).
+#nosort                         # Do not sort the output from the search (defaults to false so it will sort the output).
 
 #spawnpoints                    # Have spawnpoints included in the cluster search (defaults to false).
 #radius:                        # Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).
 #min:                           # The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).
-#timers                         # Only use spawnpoints with confirmed timers (defaults to false).
+#timers:                        # Choose whether to use confirmed spawn timers (yes), use unconfirmed timers (no), or all timers (all) (defaults to all).
 #lastupdated:                   # Only use spawnpoints that were last updated in x hours. Use 0 to disable this option (defaults to 0).
 
 #pokestops                      # Have pokestops included in the cluster search (defaults to false).
@@ -21,3 +22,5 @@
 #genivlist                      # Skip all the normal functionality and just generate an IV list using RDM data (defaults to false).
 #maxpoke:                       # The maximum number to be used for the end of the IV list (defaults to 809).
 #excludepoke:[1,2,3]            # List of Pokemon to exclude from the IV list. Specified as Pokemon ID (defaults to none).
+
+#circle                         # Create circles from a geofence instance. Requires -geo <name> and -r <#>. Sorting should be disabled (defaults to false).
