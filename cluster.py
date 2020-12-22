@@ -3,7 +3,6 @@ from math import radians, sin, cos, acos, sqrt
 from tsp_solver import solve_tsp
 from geopy import distance
 from matplotlib.path import Path
-from multiprocessing.pool import Pool
 
 class Coordinate(object):
     def __init__(self, data):
