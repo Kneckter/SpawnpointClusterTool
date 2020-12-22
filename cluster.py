@@ -1,118 +1,73 @@
 import configargparse,time,sys,os,peewee,json,numpy,matplotlib,geopy
+from math import radians, sin, cos, acos, sqrt
 from tsp_solver import solve_tsp
-from math import acos, atan2, cos, degrees, radians, sin, sqrt
 from geopy import distance
 from matplotlib.path import Path
+from multiprocessing.pool import Pool
 
-class utils:
-    def distance(pos1, pos2):
-        R = 6378137.0
-        if pos1 == pos2:
-            return 0.0
-
-        lat1 = radians(pos1[0])
-        lon1 = radians(pos1[1])
-        lat2 = radians(pos2[0])
-        lon2 = radians(pos2[1])
-
-        a = sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(lon2 - lon1)
-
-        if a > 1:
-            return 0.0
-
-        return acos(a) * R
-
-
-    def intermediate_point(pos1, pos2, f):
-        if pos1 == pos2:
-            return pos1
-
-        lat1 = radians(pos1[0])
-        lon1 = radians(pos1[1])
-        lat2 = radians(pos2[0])
-        lon2 = radians(pos2[1])
-
-        a = sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(lon2 - lon1)
-
-        if a > 1:  # too close
-            return pos1 if f < 0.5 else pos2
-
-        delta = acos(a)
-
-        if delta == 0:  # too close
-            return pos1 if f < 0.5 else pos2
-
-        a = sin((1 - f) * delta) / delta
-        b = sin(f * delta) / delta
-        x = a * cos(lat1) * cos(lon1) + b * cos(lat2) * cos(lon2)
-        y = a * cos(lat1) * sin(lon1) + b * cos(lat2) * sin(lon2)
-        z = a * sin(lat1) + b * sin(lat2)
-
-        lat3 = atan2(z, sqrt(x**2 + y**2))
-        lon3 = atan2(y, x)
-
-        def normalize(pos):
-            return ((pos[0] + 540) % 360) - 180, ((pos[1] + 540) % 360) - 180
-
-        return normalize((degrees(lat3), degrees(lon3)))
-
-class Spawnpoint(object):
+class Coordinate(object):
     def __init__(self, data):
         self.position = (float(data[0]), float(data[1]))
 
-class Spawncluster(object):
-    def __init__(self, spawnpoint):
-        self._spawnpoints = [spawnpoint]
-        self.centroid = spawnpoint.position
-    
-    def __iter__(self):
-        for x in self._spawnpoints:
-            yield x
-        
-    def append(self, spawnpoint):
-        # update centroid
-        f = len(self._spawnpoints) / (len(self._spawnpoints) + 1.0)
-        self.centroid = utils.intermediate_point(spawnpoint.position, self.centroid, f)
-        
-        self._spawnpoints.append(spawnpoint)
-            
-    def simulate_centroid(self, spawnpoint):
-        f = len(self._spawnpoints) / (len(self._spawnpoints) + 1.0)
-        new_centroid = utils.intermediate_point(spawnpoint.position, self.centroid, f)
-        
-        return new_centroid
-            
-def check_cluster(spawnpoint, cluster, radius):
-    # discard infinite cost or too far away
-    if utils.distance(spawnpoint.position, cluster.centroid) > 2 * radius:
-        return False
+def distance(pos1, pos2):
+    R = 6378137.0
+    if pos1 == pos2:
+        return 0.0
 
-    new_centroid = cluster.simulate_centroid(spawnpoint)
+    lat1 = radians(pos1[0])
+    lon1 = radians(pos1[1])
+    lat2 = radians(pos2[0])
+    lon2 = radians(pos2[1])
+
+    a = sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(lon2 - lon1)
+
+    if a > 1:
+        return 0.0
+
+    return acos(a) * R
     
-    # we'd be removing ourselves
-    if utils.distance(spawnpoint.position, new_centroid) > radius:
-        return False
-    
-    # we'd be removing x
-    if any(utils.distance(x.position, new_centroid) > radius for x in cluster):
-        return False
-        
-    return True
-    
-def cluster(spawnpoints, radius, clusters):
-    for p in spawnpoints:
-        if len(clusters) == 0:
-            clusters.append(Spawncluster(p))
+def cluster(points, radius, maxClusterList, ms):
+    if len(maxClusterList) > 0:
+        ii = 0
+        while ii < len(points):
+            for cluster in maxClusterList:
+                dist = distance(cluster, points[ii].position)
+                if dist <= radius:
+                    points.remove(points[ii])
+                    ii=ii-1
+                    break
+            ii=ii+1
+    clustersList = []
+    ii = 0
+    while ii < len(points):
+        pointsList = []
+        for point in points:
+            dist = distance(points[ii].position, point.position)
+            if dist <= radius:
+                pointsList.append(point)
+            if dist == 0.0:
+                pointsList.append(point.position)
+        clustersList.append(pointsList)
+        ii=ii+1
+    if len(clustersList) > 0:
+        maxCluster = max(clustersList, key=len)
+        print("The max cluster seen was {}.".format(len(maxCluster)-1))
+    done = 0
+    while len(clustersList) > 0 and done == 0:
+        longestList = max(clustersList, key=len)
+        if len(longestList)-1 >= ms and len(longestList)-1 > 0:
+            clustersList.remove(longestList)
+            for item in longestList:
+                if type(item) is not Coordinate:
+                    maxClusterList.append(item)
+                else:
+                    for cluster in clustersList:
+                        if item in cluster:
+                            cluster.remove(item)
         else:
-            c = min(clusters, key=lambda x: utils.distance(p.position, x.centroid))
+            done = 1
 
-            if check_cluster(p, c, radius):
-                c.append(p)
-            else:
-                c = Spawncluster(p)
-                clusters.append(c)
-
-    return clusters
+    return maxClusterList
 
 def getInstance(db):
     with db:
@@ -305,9 +260,8 @@ def in_area(coordinate, area):
     return path.contains_point(pointTuple)
 
 def main(args):
-    radius = args.radius
-    ms = args.min
     mspoints = []
+    filename = str(args.output)+'.txt'
 
     print('Connecting to MySQL database {} on {}:{}...\n'.format(args.db_name, args.db_host, args.db_port))
     db = peewee.MySQLDatabase(
@@ -318,6 +272,7 @@ def main(args):
         port=args.db_port,
         charset='utf8mb4')
     db.connect()
+    start_time = time.time()
 
     # Get the instance from args and query the DB for spawnpoints
     instance = getInstance(db)
@@ -335,80 +290,57 @@ def main(args):
         if firstpt != lastpt:
             fence.append(firstpt)
             print('Updated last point in geofence to match the first point')
-    print('Gatherng points from {} geofence(s)...\n'. format(len(geofences)))
+    print('Gatherng points from {} geofence(s)...\n'.format(len(geofences)))
 
     spawnpointssql,pokestoppointssql,gympointssql = getPoints(geofences, db, args)
-    start_time = time.time()
 
     if args.spawnpoints:
         points = spawnpointssql.fetchall()
 
         rows = []
         for p in points:
-            rows.append(p)
+            if p not in rows:
+                rows.append(p)
 
-        spawnpoints = [Spawnpoint(x) for x in rows]
+        spawnpoints = [Coordinate(x) for x in rows]
 
         print('Processing', len(spawnpoints), 'spawnpoints...')
-        clusters = cluster(spawnpoints, radius, [])
+        clusters = cluster(spawnpoints, args.radius, [], args.min)
 
-        try:
-            for c in clusters:
-                for p in c:
-                    assert utils.distance(p.position, c.centroid) <= radius
-        except AssertionError:
-            print('error: something\'s seriously broken.')
-            raise
-
-        rows = ''
         rowcount = 0
-        filename = str(args.output)+'.txt'
         f = open(filename, 'w')
 
         for c in clusters:
-            if len([x for x in c]) >= ms:
-                rows = str(str(c.centroid[0]) + ',' + str(c.centroid[1]) +'\n')
-                mspoints.append(c)
-                f.write(str(rows))
-                rowcount += 1
+            mspoints.append(c)
+            f.write(str(str(c[0]) + ',' + str(c[1]) +'\n'))
+            rowcount += 1
         f.close()
-        print('{} clusters with {} or more spawnpoints in them.\n'.format(rowcount, ms))
+        print('{} clusters with {} or more spawnpoints in them.\n'.format(rowcount, args.min))
 
     if args.pokestops:
         points = pokestoppointssql.fetchall()
 
         rows = []
         for p in points:
-            rows.append(p)
+            if p not in rows:
+                rows.append(p)
 
-        spawnpoints = [Spawnpoint(x) for x in rows]
+        pokestops = [Coordinate(x) for x in rows]
 
-        print('Processing', len(spawnpoints), 'pokestops...')
-        clusters = cluster(spawnpoints, args.raidradius, mspoints)
+        print('Processing', len(pokestops), 'pokestops...')
+        clusters = cluster(pokestops, args.raidradius, mspoints, args.minraid)
 
-        try:
-            for c in clusters:
-                for p in c:
-                    assert utils.distance(p.position, c.centroid) <= args.raidradius
-        except AssertionError:
-            print('error: something\'s seriously broken.')
-            raise
-
-        rows = ''
         mspoints = []
         rowcount = 0
-        filename = str(args.output)+'.txt'
         f = open(filename, 'w')
 
         for c in clusters:
-            if len([x for x in c]) >= args.minraid:
-                rows = str(str(c.centroid[0]) + ',' + str(c.centroid[1]) +'\n')
-                mspoints.append(c)
-                f.write(str(rows))
-                rowcount += 1
+            mspoints.append(c)
+            f.write(str(str(c[0]) + ',' + str(c[1]) +'\n'))
+            rowcount += 1
         f.close()
         if args.spawnpoints:
-            print('{} clusters with spawnpoints and with {} or more pokestops in them.\n'.format(rowcount, args.minraid))
+            print('{} clusters with {} or more spawnpoints and {} or more pokestops in them.\n'.format(rowcount, args.min, args.minraid))
         else:
             print('{} clusters with {} or more pokestops in them.\n'.format(rowcount, args.minraid))
 
@@ -417,41 +349,29 @@ def main(args):
 
         rows = []
         for p in points:
-            rows.append(p)
+            if p not in rows:
+                rows.append(p)
 
-        spawnpoints = [Spawnpoint(x) for x in rows]
+        gyms = [Coordinate(x) for x in rows]
 
-        print('Processing', len(spawnpoints), 'gyms...')
-        clusters = cluster(spawnpoints, args.raidradius, mspoints)
+        print('Processing', len(gyms), 'gyms...')
+        clusters = cluster(gyms, args.raidradius, mspoints, args.minraid)
 
-        try:
-            for c in clusters:
-                for p in c:
-                    assert utils.distance(p.position, c.centroid) <= args.raidradius
-        except AssertionError:
-            print('error: something\'s seriously broken.')
-            raise
-
-        rows = ''
-        mspoints = []
         rowcount = 0
-        filename = str(args.output)+'.txt'
         f = open(filename, 'w')
 
         for c in clusters:
-            if len([x for x in c]) >= args.minraid:
-                rows = str(str(c.centroid[0]) + ',' + str(c.centroid[1]) +'\n')
-                f.write(str(rows))
-                rowcount += 1
+            f.write(str(str(c[0]) + ',' + str(c[1]) +'\n'))
+            rowcount += 1
         f.close()
         if args.spawnpoints and args.pokestops:
-            print('{} clusters with spawnpoints, pokestops, and with {} or more gyms in them.\n'.format(rowcount, args.minraid))
+            print('{} clusters with {} or more spawnpoints, {} or more pokestops, and {} or more gyms in them.\n'.format(rowcount, args.min, args.minraid, args.minraid))
         elif args.spawnpoints:
-            print('{} clusters with spawnpoints and with {} or more gyms in them.\n'.format(rowcount, args.minraid))
+            print('{} clusters with {} or more spawnpoints and {} or more gyms in them.\n'.format(rowcount, args.min, args.minraid))
         elif args.pokestops:
-            print('{} clusters with pokestops and with {} or more gyms in them.\n'.format(rowcount, args.minraid))
+            print('{} clusters with {} or more pokestops and gyms in them.\n'.format(rowcount, args.minraid))
         else:
-            print('{} clusters with more than {} gyms in them.\n'.format(rowcount, args.minraid))
+            print('{} clusters with {} or more gyms in them.\n'.format(rowcount, args.minraid))
 
     if args.nosort:
         print('Skipping the sort...\n')
@@ -642,7 +562,6 @@ def createcircles(args):
     db.close()
     print('Database connection closed')
 
-
 if __name__ == "__main__":
 
     defaultconfigfiles = []
@@ -705,6 +624,7 @@ if __name__ == "__main__":
 # Maybe use the RDM API to write to an instance after the coordinates are sorted
 # Maybe add a geofence generator. If a geofence is generated, read it from the file to use it for clustering?
 # Maybe change logic to look for max spawns first and then find lower amounts of spawns until the min. as per Mermao
+# Maybe add a date range to the IV list generator
 
 # As reported by Hunch. He got this warning with MySQL 5.7
 # The warning is probably fine because it doesn't stop the queries.
