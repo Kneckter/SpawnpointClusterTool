@@ -1,12 +1,21 @@
-import configargparse,time,sys,os,peewee,json,numpy,matplotlib,geopy
+import configargparse,time,sys,os,peewee,json,numpy,matplotlib,geopy,s2sphere,multiprocessing
 from math import radians, sin, cos, acos, sqrt
 from tsp_solver import solve_tsp
 from geopy import distance
 from matplotlib.path import Path
+from multiprocessing.managers import BaseManager, SyncManager
+
+#manager = multiprocessing.Manager()
+manager = SyncManager()
+mpPoints = []
+mpRadius = 70
+#pointsList = manager.list()
 
 class Coordinate(object):
     def __init__(self, data):
         self.position = (float(data[0]), float(data[1]))
+
+manager.register('Coordinate', Coordinate)
 
 def distance(pos1, pos2):
     R = 6378137.0
@@ -36,37 +45,49 @@ def cluster(points, radius, maxClusterList, ms):
                     ii=ii-1
                     break
             ii=ii+1
-    clustersList = []
-    ii = 0
-    while ii < len(points):
-        pointsList = []
-        for point in points:
-            dist = distance(points[ii].position, point.position)
-            if dist <= radius:
-                pointsList.append(point)
-            if dist == 0.0:
-                pointsList.append(point.position)
-        clustersList.append(pointsList)
-        ii=ii+1
+    global mpPoints, mpRadius, clustersList, pool
+    mpPoints = points
+    mpRadius = radius
+    clustersList = manager.list()
+    pool = multiprocessing.Pool(processes=len(os.sched_getaffinity(0)))
+    pool.map(getMpPoints, points)
+    pool.close()
+    pool.join()
     if len(clustersList) > 0:
         maxCluster = max(clustersList, key=len)
         print("The max cluster seen was {}.".format(len(maxCluster)-1))
     done = 0
+    clustersList = clustersList._getvalue()
     while len(clustersList) > 0 and done == 0:
         longestList = max(clustersList, key=len)
         if len(longestList)-1 >= ms and len(longestList)-1 > 0:
             clustersList.remove(longestList)
             for item in longestList:
-                if type(item) is not Coordinate:
+                if type(item) is tuple:
                     maxClusterList.append(item)
                 else:
                     for cluster in clustersList:
-                        if item in cluster:
-                            cluster.remove(item)
+                        for cpoint in cluster:
+                            if type(cpoint) is not tuple and item.position == cpoint.position:
+                                cluster.remove(cpoint)
+                                break
         else:
             done = 1
 
     return maxClusterList
+
+def getMpPoints(point):
+    global clustersList, mpPoints
+    ii = 0
+    pointsList = []
+    while ii < len(mpPoints):
+        dist = distance(mpPoints[ii].position, point.position)
+        if dist <= mpRadius:
+            pointsList.append(mpPoints[ii])
+        if dist == 0.0:
+            pointsList.append(mpPoints[ii].position)
+        ii=ii+1
+    clustersList.append(pointsList)
 
 def getInstance(db):
     with db:
@@ -120,7 +141,7 @@ def getPoints(geofences, db, args):
             sys.exit(1)
 
         if args.lastupdated > 0:
-            updatetimer = time.time() - (args.lastupdated * 3600)
+            updatetimer = time.time() - (args.lastupdated * 3600 * 24)
             scmd_sql = scmd_sql + ' updated > %s AND ' % updatetimer
 
         scmd_sql = scmd_sql + ' ('
@@ -260,7 +281,7 @@ def in_area(coordinate, area):
 
 def main(args):
     mspoints = []
-    filename = str(args.output)+'.txt'
+    filename = str(args.output)
 
     print('Connecting to MySQL database {} on {}:{}...\n'.format(args.db_name, args.db_host, args.db_port))
     db = peewee.MySQLDatabase(
@@ -292,6 +313,7 @@ def main(args):
     print('Gatherng points from {} geofence(s)...\n'.format(len(geofences)))
 
     spawnpointssql,pokestoppointssql,gympointssql = getPoints(geofences, db, args)
+    manager.start()
 
     if args.spawnpoints:
         points = spawnpointssql.fetchall()
@@ -356,10 +378,12 @@ def main(args):
         print('Processing', len(gyms), 'gyms...')
         clusters = cluster(gyms, args.raidradius, mspoints, args.minraid)
 
+        mspoints = []
         rowcount = 0
         f = open(filename, 'w')
 
         for c in clusters:
+            mspoints.append(c)
             f.write(str(str(c[0]) + ',' + str(c[1]) +'\n'))
             rowcount += 1
         f.close()
@@ -371,6 +395,44 @@ def main(args):
             print('{} clusters with {} or more pokestops and gyms in them.\n'.format(rowcount, args.minraid))
         else:
             print('{} clusters with {} or more gyms in them.\n'.format(rowcount, args.minraid))
+
+    if args.s2cells:
+        #points = gympointssql.fetchall()
+        points = s2cellpoints(geofences, args)
+
+        rows = []
+        for p in points:
+            if p not in rows:
+                rows.append(p)
+
+        s2cells = [Coordinate(x) for x in rows]
+
+        print('Processing', len(s2cells), 'S2Cells...')
+        clusters = cluster(s2cells, args.s2radius, mspoints, args.s2min)
+
+        rowcount = 0
+        f = open(filename, 'w')
+
+        for c in clusters:
+            f.write(str(str(c[0]) + ',' + str(c[1]) +'\n'))
+            rowcount += 1
+        f.close()
+        if args.spawnpoints and args.pokestops and args.gyms:
+            print('{} clusters with {} or more spawnpoints, {} or more pokestops, {} or more gyms, and {} or more S2Cells in them.\n'.format(rowcount, args.min, args.minraid, args.minraid, args.s2min))
+        elif args.spawnpoints and args.pokestops:
+            print('{} clusters with {} or more spawnpoints, {} or more pokestops, and {} or more S2Cells in them.\n'.format(rowcount, args.min, args.minraid, args.s2min))
+        elif args.spawnpoints and args.gyms:
+            print('{} clusters with {} or more spawnpoints, {} or more gyms, and {} or more S2Cells in them.\n'.format(rowcount, args.min, args.minraid, args.s2min))
+        elif args.pokestops and args.gyms:
+            print('{} clusters with {} or more pokestops, {} or more gyms, and {} or more S2Cells in them.\n'.format(rowcount, args.minraid, args.minraid, args.s2min))
+        elif args.spawnpoints:
+            print('{} clusters with {} or more spawnpoints and {} or more S2Cells in them.\n'.format(rowcount, args.min, args.s2min))
+        elif args.pokestops:
+            print('{} clusters with {} or more pokestops and {} or S2Cells in them.\n'.format(rowcount, args.minraid, args.s2min))
+        elif args.gyms:
+            print('{} clusters with {} or more gyms and {} or S2Cells in them.\n'.format(rowcount, args.minraid, args.s2min))
+        else:
+            print('{} clusters with {} or more S2Cells in them.\n'.format(rowcount, args.s2min))
 
     if args.nosort:
         print('Skipping the sort...\n')
@@ -442,7 +504,7 @@ def genivs(args):
                 datajson.remove(int(idex))
 
         # Write output to a file
-        filename = str(args.output)+'.txt'
+        filename = str(args.output)
         f = open(filename, 'w')
 
         for d in datajson:
@@ -493,7 +555,7 @@ def createcircles(args):
             if dist > maxdistance[i]:
                 maxdistance[i] = dist
         i=i+1
-    print('Generating {}m circles for {} geofence(s)...\n'. format(args.radius, len(geofences)))
+    print('Generating {}m circles for {} geofence(s)...\n'. format(args.ccradius, len(geofences)))
 
     start_time = time.time()
 
@@ -503,8 +565,8 @@ def createcircles(args):
     ii=0
     for fence in geofences:
         # dist between column centers
-        step_distance = args.radius/1000
-        step_limit = int((maxdistance[ii]/args.radius)+1) # A step is "(step_limit * step_distance) + step_distance/2". Each step basically adds a layer of 70m points to the calculation
+        step_distance = args.ccradius/1000
+        step_limit = int((maxdistance[ii]/args.ccradius)+1) # A step is "(step_limit * step_distance) + step_distance/2". Each step basically adds a layer of 70m points to the calculation
         scan_location = centroid[ii] # This is the center of each geofence
         ii=ii+1
 
@@ -534,7 +596,7 @@ def createcircles(args):
     #write to the file. They should already be sorted
     rows = ''
     rowcount = 0
-    filename = str(args.output)+'.txt'
+    filename = str(args.output)
     f = open(filename, 'w')
 
     for r in endresults:
@@ -545,9 +607,9 @@ def createcircles(args):
     f.close()
 
     if args.nosort:
-        print('{} circles checked and {} circles with a {}m radius found in geofence(s). Skipping the sort...\n'.format(numresults, rowcount, args.radius))
+        print('{} circles checked and {} circles with a {}m radius found in geofence(s). Skipping the sort...\n'.format(numresults, rowcount, args.ccradius))
     else:
-        print('{} circles checked and {} circles with a {}m radius found in geofence(s). Sorting coordinates...\n'.format(numresults, rowcount, args.radius))
+        print('{} circles checked and {} circles with a {}m radius found in geofence(s). Sorting coordinates...\n'.format(numresults, rowcount, args.ccradius))
         try:
             tspsolver(filename)
         except:
@@ -560,6 +622,27 @@ def createcircles(args):
     # Done with the geofences, close it down
     db.close()
     print('Database connection closed')
+
+def s2cellpoints(geofences, args):
+    #class S2Polygon to use multiple points
+    #Have to process each geofence separately because they cannot overlap or share sides
+    #Check for duplicate points at the end and pop them out
+    points = ''
+    print(geofences)
+    return points
+
+    r = s2sphere.RegionCoverer()
+    p1 = s2sphere.LatLng.from_degrees(33, -122)
+    p2 = s2sphere.LatLng.from_degrees(33.1, -122.1)
+    cell_ids = r.get_covering(s2sphere.LatLngRect.from_point_pair(p1, p2))
+
+    lat_lng = LatLng.from_degrees(lat, lng)
+    cell_id = CellId.from_lat_lng(lat_lng).parent(level)
+    center = cell_id.to_lat_lng()
+
+    points = points + float(center.lat().degrees) + ',' + float(center.lng().degrees) + '\n'
+    print(points)
+    return points
 
 if __name__ == "__main__":
 
@@ -579,7 +662,7 @@ if __name__ == "__main__":
     gensets = parser.add_argument_group('General Settings')
     gensets.add_argument('-cf', '--config', is_config_file=True, help='Set configuration file (defaults to ./config.ini).')
     gensets.add_argument('-geo', '--geofence', help='The name of the RDM quest instance to use as a geofence (required).')
-    gensets.add_argument('-of', '--output', help='The base filename without extension to write cluster data to (defaults to outfile).', default='outfile')
+    gensets.add_argument('-of', '--output', help='The base filename without extension to write cluster data to (defaults to outfile.txt).', default='outfile.txt')
     gensets.add_argument('-ns', '--nosort', help='Do not sort the output from the search (defaults to false).', action='store_true', default=False)
 
     spawns = parser.add_argument_group('Spawnpoints')
@@ -587,7 +670,7 @@ if __name__ == "__main__":
     spawns.add_argument('-r', '--radius', type=float, help='Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).', default=70)
     spawns.add_argument('-ms', '--min', type=int, help='The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).', default=3)
     spawns.add_argument('-ct', '--timers', help='Choose whether to use confirmed spawn timers (yes), use unconfirmed timers (no), or all timers (all) (defaults to all).', default='all')
-    spawns.add_argument('-lu', '--lastupdated', type=int, help='Only use spawnpoints that were last updated in x hours. Use 0 to disable this option (defaults to 0).', default=0)
+    spawns.add_argument('-lu', '--lastupdated', type=float, help='Only use spawnpoints that were last updated in x days. Use 0 to disable this option (defaults to 0).', default=0)
 
     sng = parser.add_argument_group('Stops and Gyms')
     sng.add_argument('-ps', '--pokestops', help='Have pokestops included in the cluster search (defaults to false).', action='store_true', default=False)
@@ -595,18 +678,37 @@ if __name__ == "__main__":
     sng.add_argument('-mr', '--minraid', type=int, help='The minimum amount of gyms or pokestops to include in clusters that are written out (defaults to 1).', default=1)
     sng.add_argument('-rr', '--raidradius', type=float, help='Maximum radius (in meters) where gyms or pokestops are considered close (defaults to 500).', default=500)
 
+    s2c = parser.add_argument_group('S2Cells')
+    s2c.add_argument('-s2c', '--s2cells', help='Have the S2Cells included in the cluster search (defaults to false).', action='store_true', default=False)
+    s2c.add_argument('-s2l', '--s2level', type=float, help='Specify the level for the S2Cell (defaults to 15).', default=15)
+    s2c.add_argument('-s2m', '--s2min', type=int, help='The minimum amount of S2Cell centers to include in clusters that are written out (defaults to 1).', default=1)
+    s2c.add_argument('-s2r', '--s2radius', type=float, help='Maximum radius (in meters) where S2Cell centers are considered close (defaults to 500).', default=500)
+
     ivl = parser.add_argument_group('IV List',description='No cluster options will be recognized for the below options.')
     ivl.add_argument('-giv', '--genivlist', help='Skip all the normal functionality and just generate an IV list using RDM data (defaults to false).', action='store_true', default=False)
     ivl.add_argument('-mp', '--maxpoke', type=int, help='The maximum number to be used for the end of the IV list (defaults to 809).', default=809)
     ivl.add_argument('--excludepoke', help=('List of Pokemon to exclude from the IV list. Specified as Pokemon ID. Use this only in the config file (defaults to none).'), action='append', default=[])
 
-    cc = parser.add_argument_group('Create Circles',description='No cluster options will be recognized for the below options.')
-    cc.add_argument('-cc', '--circle', help='Create circles from a geofence instance. Requires -geo <name> and -r <#>. Sorting should be disabled (defaults to false).', action='store_true', default=False)
+    cc = parser.add_argument_group('Create Circles',description='Creates a list of lat,lon. Recognizes options General Settings. Sorting should be disabled.')
+    cc.add_argument('-cc', '--circle', help='Create circles from a geofence instance. Requires -geo <name>. (defaults to false).', action='store_true', default=False)
+    cc.add_argument('-ccr', '--ccradius', help='Maximum radius (in meters) for the circle sizes (defaults to 70).', default=70)
+
+    js = parser.add_argument_group('Sorting',description='No other options will be recognized for the below options.')
+    js.add_argument('-js', '--justsort', help='Sorts the points in the given text file of lat,lon coordinates (defaults to false).', action='store_true', default=False)
+    js.add_argument('-jsf', '--justsortfile', help='Specifies the file to be sorted (defaults to infile).', default='infile')
 
     args = parser.parse_args()
 
     if args.genivlist:
         genivs(args)
+        sys.exit(1)
+    if args.justsort:
+        print('Sorting coordinates...\n')
+        try:
+            tspsolver(args.justsortfile)
+            print("Done!")
+        except:
+            print("Could not sort this many coordinates due to your system's limits.\n")
         sys.exit(1)
     if not args.geofence:
         print('You must specify a geofence to continue.')
@@ -614,15 +716,14 @@ if __name__ == "__main__":
     if args.circle:
         createcircles(args)
         sys.exit(1)
-    if not args.spawnpoints and not args.pokestops and not args.gyms:
-        print('You must choose to include either spawnpoints, gyms, or pokestops for the query.')
+    if not args.spawnpoints and not args.pokestops and not args.gyms and not args.s2cells:
+        print('You must choose to include either spawnpoints, gyms, pokestops, or S2Cells for the query.')
         sys.exit(1)
 
     main(args)
 
 # Maybe use the RDM API to write to an instance after the coordinates are sorted
 # Maybe add a geofence generator. If a geofence is generated, read it from the file to use it for clustering?
-# Maybe change logic to look for max spawns first and then find lower amounts of spawns until the min. as per Mermao
 # Maybe add a date range to the IV list generator
 
 # As reported by Hunch. He got this warning with MySQL 5.7
