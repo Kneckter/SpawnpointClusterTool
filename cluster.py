@@ -5,11 +5,7 @@ from geopy import distance
 from matplotlib.path import Path
 from multiprocessing.managers import BaseManager, SyncManager
 
-#manager = multiprocessing.Manager()
 manager = SyncManager()
-mpPoints = []
-mpRadius = 70
-#pointsList = manager.list()
 
 class Coordinate(object):
     def __init__(self, data):
@@ -45,9 +41,10 @@ def cluster(points, radius, maxClusterList, ms):
                     ii=ii-1
                     break
             ii=ii+1
-    global mpPoints, mpRadius, clustersList, pool
+    global mpPoints, mpRadius, clustersList, mpMS, mpItem
     mpPoints = points
     mpRadius = radius
+    mpMS = ms
     clustersList = manager.list()
     pool = multiprocessing.Pool(processes=len(os.sched_getaffinity(0)))
     pool.map(getMpPoints, points)
@@ -66,7 +63,15 @@ def cluster(points, radius, maxClusterList, ms):
                 if type(item) is tuple:
                     maxClusterList.append(item)
                 else:
+                    #mpItem = item
+                    #clustersList = manager.list(clustersList)
+                    #pool = multiprocessing.Pool(processes=len(os.sched_getaffinity(0)))
+                    #pool.map(rmMpClusters, clustersList)
+                    #pool.close()
+                    #pool.join()
                     for cluster in clustersList:
+                        if len(cluster)-1 < ms:
+                            clustersList.remove(cluster)
                         for cpoint in cluster:
                             if type(cpoint) is not tuple and item.position == cpoint.position:
                                 cluster.remove(cpoint)
@@ -88,6 +93,15 @@ def getMpPoints(point):
             pointsList.append(mpPoints[ii].position)
         ii=ii+1
     clustersList.append(pointsList)
+
+def rmMpClusters(cluster):
+    global clustersList
+    if len(cluster)-1 < mpMS:
+        clustersList.remove(cluster)
+    for cpoint in cluster:
+        if type(cpoint) is not tuple and mpItem.position == cpoint.position:
+            cluster.remove(cpoint)
+            break
 
 def getInstance(db):
     with db:
