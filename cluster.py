@@ -7,12 +7,6 @@ from multiprocessing.managers import BaseManager, SyncManager
 
 manager = SyncManager()
 
-class Coordinate(object):
-    def __init__(self, data):
-        self.position = (float(data[0]), float(data[1]))
-
-manager.register('Coordinate', Coordinate)
-
 def distance(pos1, pos2):
     R = 6378137.0
     if pos1 == pos2:
@@ -35,7 +29,7 @@ def cluster(points, radius, maxClusterList, ms):
         ii = 0
         while ii < len(points):
             for cluster in maxClusterList:
-                dist = distance(cluster, points[ii].position)
+                dist = distance(cluster, points[ii])
                 if dist <= radius:
                     points.remove(points[ii])
                     ii=ii-1
@@ -48,37 +42,33 @@ def cluster(points, radius, maxClusterList, ms):
     clustersList = manager.list()
     pool = multiprocessing.Pool(processes=len(os.sched_getaffinity(0)))
     pool.map(getMpPoints, points)
-    pool.close()
-    pool.join()
+    staticClustersList = clustersList._getvalue()
+    pool.map(rmSmallClusters, staticClustersList)
     if len(clustersList) > 0:
         maxCluster = max(clustersList, key=len)
         print("The max cluster seen was {}.".format(len(maxCluster)-1))
-    done = 0
+        done = 0
+    else:
+        print("There were no clusters found that fit the minimal cluster: {}.".format(ms))
+        done = 1
     clustersList = clustersList._getvalue()
     while len(clustersList) > 0 and done == 0:
         longestList = max(clustersList, key=len)
         if len(longestList)-1 >= ms and len(longestList)-1 > 0:
             clustersList.remove(longestList)
             for item in longestList:
-                if type(item) is tuple:
-                    maxClusterList.append(item)
+                if type(item[0]) is str:
+                    maxClusterList.append(item[1])
+                    #longestList.remove(item)
+                    #break
                 else:
-                    #mpItem = item
-                    #clustersList = manager.list(clustersList)
-                    #pool = multiprocessing.Pool(processes=len(os.sched_getaffinity(0)))
-                    #pool.map(rmMpClusters, clustersList)
-                    #pool.close()
-                    #pool.join()
-                    for cluster in clustersList:
-                        if len(cluster)-1 < ms:
-                            clustersList.remove(cluster)
-                        for cpoint in cluster:
-                            if type(cpoint) is not tuple and item.position == cpoint.position:
-                                cluster.remove(cpoint)
-                                break
+                    rmLongestList(item)
+            #pool.map(rmMpLongestList, longestList)
         else:
             done = 1
 
+    pool.close()
+    pool.join()
     return maxClusterList
 
 def getMpPoints(point):
@@ -86,22 +76,41 @@ def getMpPoints(point):
     ii = 0
     pointsList = []
     while ii < len(mpPoints):
-        dist = distance(mpPoints[ii].position, point.position)
+        dist = distance(mpPoints[ii], point)
         if dist <= mpRadius:
             pointsList.append(mpPoints[ii])
         if dist == 0.0:
-            pointsList.append(mpPoints[ii].position)
+            pointsList.append(tuple(("center",mpPoints[ii])))
         ii=ii+1
     clustersList.append(pointsList)
 
-def rmMpClusters(cluster):
+def rmSmallClusters(cluster):
     global clustersList
     if len(cluster)-1 < mpMS:
         clustersList.remove(cluster)
-    for cpoint in cluster:
-        if type(cpoint) is not tuple and mpItem.position == cpoint.position:
-            cluster.remove(cpoint)
-            break
+
+def rmMpLongestList(item):
+    global clustersList
+    for cluster in clustersList:
+        rmSmallClusters(cluster)
+        clustersList.remove(cluster)
+        for cpoint in cluster:
+            if type(cpoint[0]) is not str and item == cpoint:
+                #print(clustersList[clustersList.index(cluster)])
+                #cluster.remove(cpoint)
+                clustersList[clustersList.index(cluster)].remove(cpoint)
+                break
+
+def rmLongestList(item):
+    global clustersList
+    for cluster in clustersList:
+        if len(cluster)-1 < mpMS:
+            clustersList.remove(cluster)
+        else:
+            for cpoint in cluster:
+                if type(cpoint[0]) is not str and item == cpoint:
+                    cluster.remove(cpoint)
+                    break
 
 def getInstance(db):
     with db:
@@ -337,10 +346,8 @@ def main(args):
             if p not in rows:
                 rows.append(p)
 
-        spawnpoints = [Coordinate(x) for x in rows]
-
-        print('Processing', len(spawnpoints), 'spawnpoints...')
-        clusters = cluster(spawnpoints, args.radius, [], args.min)
+        print('Processing', len(rows), 'spawnpoints...')
+        clusters = cluster(rows, args.radius, [], args.min)
 
         rowcount = 0
         f = open(filename, 'w')
@@ -360,10 +367,8 @@ def main(args):
             if p not in rows:
                 rows.append(p)
 
-        pokestops = [Coordinate(x) for x in rows]
-
-        print('Processing', len(pokestops), 'pokestops...')
-        clusters = cluster(pokestops, args.raidradius, mspoints, args.minraid)
+        print('Processing', len(rows), 'pokestops...')
+        clusters = cluster(rows, args.raidradius, mspoints, args.minraid)
 
         mspoints = []
         rowcount = 0
@@ -387,10 +392,8 @@ def main(args):
             if p not in rows:
                 rows.append(p)
 
-        gyms = [Coordinate(x) for x in rows]
-
-        print('Processing', len(gyms), 'gyms...')
-        clusters = cluster(gyms, args.raidradius, mspoints, args.minraid)
+        print('Processing', len(rows), 'gyms...')
+        clusters = cluster(rows, args.raidradius, mspoints, args.minraid)
 
         mspoints = []
         rowcount = 0
@@ -419,10 +422,8 @@ def main(args):
             if p not in rows:
                 rows.append(p)
 
-        s2cells = [Coordinate(x) for x in rows]
-
-        print('Processing', len(s2cells), 'S2Cells...')
-        clusters = cluster(s2cells, args.s2radius, mspoints, args.s2min)
+        print('Processing', len(rows), 'S2Cells...')
+        clusters = cluster(rows, args.s2radius, mspoints, args.s2min)
 
         rowcount = 0
         f = open(filename, 'w')
