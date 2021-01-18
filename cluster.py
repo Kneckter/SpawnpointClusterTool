@@ -104,13 +104,11 @@ def rmMpLongestList(item):
 def rmLongestList(item):
     global clustersList
     for cluster in clustersList:
-        if len(cluster)-1 < mpMS:
-            clustersList.remove(cluster)
-        else:
-            for cpoint in cluster:
-                if type(cpoint[0]) is not str and item == cpoint:
-                    cluster.remove(cpoint)
-                    break
+        rmSmallClusters(cluster)
+        for cpoint in cluster:
+            if type(cpoint[0]) is not str and item == cpoint:
+                cluster.remove(cpoint)
+                break
 
 def getInstance(db):
     with db:
