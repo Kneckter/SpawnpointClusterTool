@@ -7,7 +7,7 @@ from multiprocessing.managers import BaseManager, SyncManager
 
 manager = SyncManager()
 
-def distance(pos1, pos2):
+def pointDistance(pos1, pos2):
     R = 6378137.0
     if pos1 == pos2:
         return 0.0
@@ -29,13 +29,13 @@ def cluster(points, radius, maxClusterList, ms):
         ii = 0
         while ii < len(points):
             for cluster in maxClusterList:
-                dist = distance(cluster, points[ii])
+                dist = pointDistance(cluster, points[ii])
                 if dist <= radius:
                     points.remove(points[ii])
                     ii=ii-1
                     break
             ii=ii+1
-    global mpPoints, mpRadius, clustersList, mpMS, mpItem
+    global mpPoints, mpRadius, clustersList, mpMS
     mpPoints = points
     mpRadius = radius
     mpMS = ms
@@ -53,19 +53,23 @@ def cluster(points, radius, maxClusterList, ms):
         done = 1
     clustersList = clustersList._getvalue()
     while len(clustersList) > 0 and done == 0:
+        start_time = time.time()
+#        print(len(clustersList))
         longestList = max(clustersList, key=len)
         if len(longestList)-1 >= ms and len(longestList)-1 > 0:
             clustersList.remove(longestList)
             for item in longestList:
                 if type(item[0]) is str:
                     maxClusterList.append(item[1])
-                    #longestList.remove(item)
-                    #break
                 else:
-                    rmLongestList(item)
-            #pool.map(rmMpLongestList, longestList)
+                    rmLongestList(item, ms)
+#                    staticClustersList = clustersList._getvalue()
+#                    for cluster in staticClustersList:
+#                        cluster.append(item)
+#                    pool.map(rmMpLongestList, staticClustersList)
         else:
             done = 1
+#        print('Completed one cluster in {} seconds.\n'.format(time.time() - start_time))
 
     pool.close()
     pool.join()
@@ -76,7 +80,7 @@ def getMpPoints(point):
     ii = 0
     pointsList = []
     while ii < len(mpPoints):
-        dist = distance(mpPoints[ii], point)
+        dist = pointDistance(mpPoints[ii], point)
         if dist <= mpRadius:
             pointsList.append(mpPoints[ii])
         if dist == 0.0:
@@ -89,26 +93,29 @@ def rmSmallClusters(cluster):
     if len(cluster)-1 < mpMS:
         clustersList.remove(cluster)
 
-def rmMpLongestList(item):
+def rmMpLongestList(cluster):
     global clustersList
-    for cluster in clustersList:
-        rmSmallClusters(cluster)
+    item = cluster.pop()
+    if len(cluster)-1 < mpMS:
         clustersList.remove(cluster)
+    else:
         for cpoint in cluster:
             if type(cpoint[0]) is not str and item == cpoint:
-                #print(clustersList[clustersList.index(cluster)])
-                #cluster.remove(cpoint)
-                clustersList[clustersList.index(cluster)].remove(cpoint)
+                clustersList.remove(cluster)
+                cluster.remove(cpoint)
+                clustersList.append(cluster)
                 break
 
-def rmLongestList(item):
+def rmLongestList(item, ms):
     global clustersList
     for cluster in clustersList:
-        rmSmallClusters(cluster)
-        for cpoint in cluster:
-            if type(cpoint[0]) is not str and item == cpoint:
-                cluster.remove(cpoint)
-                break
+        if len(cluster)-1 < ms:
+            clustersList.remove(cluster)
+        else:
+            for cpoint in cluster:
+                if type(cpoint[0]) is not str and item == cpoint:
+                    cluster.remove(cpoint)
+                    break
 
 def getInstance(db):
     with db:
@@ -415,13 +422,8 @@ def main(args):
         #points = gympointssql.fetchall()
         points = s2cellpoints(geofences, args)
 
-        rows = []
-        for p in points:
-            if p not in rows:
-                rows.append(p)
-
-        print('Processing', len(rows), 'S2Cells...')
-        clusters = cluster(rows, args.s2radius, mspoints, args.s2min)
+        print('Processing', len(points), 'S2Cells...')
+        clusters = cluster(points, args.s2radius, mspoints, args.s2min)
 
         rowcount = 0
         f = open(filename, 'w')
@@ -637,24 +639,40 @@ def createcircles(args):
     print('Database connection closed')
 
 def s2cellpoints(geofences, args):
-    #class S2Polygon to use multiple points
-    #Have to process each geofence separately because they cannot overlap or share sides
-    #Check for duplicate points at the end and pop them out
-    points = ''
-    print(geofences)
-    return points
+    coordinates = []
+    points = []
+    levels = {0: 7842000,1: 5004000,2: 2489000,3: 1310000,4: 636000,
+              5: 315000,6: 156000,7: 78000,8: 39000,9: 20000,
+              10: 10000,11: 5000,12: 2000,13: 1225,14: 613,
+              15: 306,16: 153,17: 77,18: 38,19: 19,
+              20: 10,21: 5,22: 2,23: 1.2,24: 0.6,
+              25: 0.3,26: 0.15,27: 0.07,28: 0.04,29: 0.018,30: 0.009}
+    # Calc the step
+    step_distance = (levels[args.s2level]/2)/1000
 
-    r = s2sphere.RegionCoverer()
-    p1 = s2sphere.LatLng.from_degrees(33, -122)
-    p2 = s2sphere.LatLng.from_degrees(33.1, -122.1)
-    cell_ids = r.get_covering(s2sphere.LatLngRect.from_point_pair(p1, p2))
+    for geofence in geofences:
+        # Get the max and min lats
+        seq = [x['lat'] for x in geofence]
+        lowLat = min(seq)
+        hiLat = max(seq)
+        # Get the max and min lons
+        seq = [x['lon'] for x in geofence]
+        lowLon = min(seq)
+        hiLon = max(seq)
 
-    lat_lng = LatLng.from_degrees(lat, lng)
-    cell_id = CellId.from_lat_lng(lat_lng).parent(level)
-    center = cell_id.to_lat_lng()
+        r = s2sphere.RegionCoverer()
+        r.min_level = args.s2level
+        r.max_level = args.s2level
+        p1 = s2sphere.LatLng.from_degrees(lowLat, hiLon)
+        p2 = s2sphere.LatLng.from_degrees(hiLat, lowLon)
+        cell_ids = r.get_covering(s2sphere.LatLngRect.from_point_pair(p1, p2))
 
-    points = points + float(center.lat().degrees) + ',' + float(center.lng().degrees) + '\n'
-    print(points)
+        for cell_id in cell_ids:
+            center = cell_id.to_lat_lng()
+            coordinates.append((float(center.lat().degrees), float(center.lng().degrees)))
+        for point in get_geofenced_coordinates(coordinates, geofence, step_distance):
+            if point not in points:
+                points.append(point)
     return points
 
 if __name__ == "__main__":
