@@ -5,10 +5,10 @@ from array import array as pyarray
 # Finds a suboptimal solution
 ################################################################################
 
-def optimize_solution( distances, connections, endpoints ):
+def optimize_solution( distances, connections ):
     """Tries to optimize solution, found by the greedy algorithm"""
     N = len(connections)
-    path = restore_path( connections, endpoints )
+    path = restore_path( connections )
     def ds(i,j): #distance between ith and jth points of path
         pi = path[i]
         pj = path[j]
@@ -36,27 +36,26 @@ def optimize_solution( distances, connections, endpoints ):
                 connections[path[c]].append(path[a])
                 connections[path[d]].remove(path[c])
                 connections[path[d]].append(path[b])
-                path[:] = restore_path( connections, endpoints )
+                path[:] = restore_path( connections )
     
     return optimizations, d_total
         
-def restore_path( connections, endpoints ):
+def restore_path( connections ):
     """Takes array of connections and returns a path.
     Connections is array of lists with 1 or 2 elements.
     These elements are indices of teh vertices, connected to this vertex
     Guarantees that first index < last index
     """
-    if endpoints is None:
+    global startpoint, finishpoint
+    if startpoint is None:
         #there are 2 nodes with valency 1 - start and end. Get them.
-        start, end = [idx 
-                      for idx, conn in enumerate(connections)
-                      if len(conn)==1 ]
-    else:
-        start, end = endpoints
+        for idx, conn in enumerate(connections):
+            if len(conn)==1 and idx != finishpoint:
+                startpoint = idx
 
-    path = [start]
+    path = [startpoint]
     prev_point = None
-    cur_point = start
+    cur_point = startpoint
     while True:
         next_points = [pnt for pnt in connections[cur_point] 
                        if pnt != prev_point ]
@@ -83,7 +82,7 @@ def pairs_by_dist(N, distances):
     indices.sort(key = lambda ij: distances[ij//N][ij%N])
     return ((ij//N,ij%N) for ij in indices)
 
-def solve_tsp( distances, optim_steps=3, pairs_by_dist=pairs_by_dist, endpoints=None ):
+def solve_tsp( distances, optim_steps=3, pairs_by_dist=pairs_by_dist, startpt=None, finishpt=None ):
     """Given a distance matrix, finds a solution for the TSP problem.
     Returns list of vertex indices. 
     Guarantees that the first index is lower than the last
@@ -91,8 +90,11 @@ def solve_tsp( distances, optim_steps=3, pairs_by_dist=pairs_by_dist, endpoints=
     :arg: distances : left-triangular matrix of distances. array of arrays
     :arg: optim_steps (int) number of additional optimization steps, allows to improve solution but costly.
     :arg: pairs_by_dist (function) an implementtion of the pairs_by_dist function. for optimization purposes.
-    :arg: endpoinds : None or pair (int,int)
+    :arg: startpoint : None or index that you want as the starting point (int)
+    :arg: finishpoint : None or index that you want as the finishing point (int)
     """
+    global startpoint, finishpoint
+    startpoint, finishpoint = startpt, finishpt
     N = len(distances)
     if N == 0: return []
     if N == 1: return [0]
@@ -101,11 +103,13 @@ def solve_tsp( distances, optim_steps=3, pairs_by_dist=pairs_by_dist, endpoints=
 
     #State of the TSP solver algorithm.
     node_valency = pyarray('i', [2])*N #Initially, each node has 2 sticky ends
-    if endpoints is not None:
-        start, end = endpoints
-        if start == end: raise ValueError("start=end is not supported")
-        node_valency[start]=1
-        node_valency[end]=1
+    if startpoint is not None:
+        node_valency[startpoint]=1
+    if finishpoint is not None:
+        node_valency[finishpoint]=1
+    if (startpoint is not None or finishpoint is not None) and startpoint == finishpoint:
+        print("The starting and finishing points cannot be the same while using the greedy algorithm")
+        raise ValueError("start=end is not supported")
         
         
     #for each node, stores 1 or 2 connected nodes
@@ -144,14 +148,14 @@ def solve_tsp( distances, optim_steps=3, pairs_by_dist=pairs_by_dist, endpoints=
         def edge_connects_endpoint_segments(i,j):
             #return True, if given ede merges 2 segments that have endpoints in them
             si,sj = segments[i],segments[j]
-            ss,se = segments[start], segments[end]
+            ss,se = segments[startpoint], segments[finishpoint]
             return (si is ss) and (sj is se) or (sj is ss) and (si is se)
                 
             
         #Take first N-1 possible edge. they are already sorted by distance
         edges_left = N-1
         for i,j in possible_edges():
-            if endpoints and edges_left!=1 and edge_connects_endpoint_segments(i,j):
+            if (startpoint is not None and finishpoint is not None) and edges_left!=1 and edge_connects_endpoint_segments(i,j):
                 #print(f"#### disallow {i}, {j} because premature termination")
                 continue #don't allow premature path termination
             
@@ -168,8 +172,8 @@ def solve_tsp( distances, optim_steps=3, pairs_by_dist=pairs_by_dist, endpoints=
 
     #now call additional optiomization procedure.
     for passn in range(optim_steps):
-        nopt, dtotal = optimize_solution( distances, connections, endpoints )
+        nopt, dtotal = optimize_solution( distances, connections )
         if nopt == 0:
             break
     #restore path from the connections map (graph) and return it
-    return restore_path( connections, endpoints=endpoints )
+    return restore_path( connections )

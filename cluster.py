@@ -247,25 +247,27 @@ def getPoints(geofences, db, args):
 
     return spawnpointssql,pokestoppointssql,gympointssql
 
-def tspsolver(filename):
+def tspsolver(filename, args):
     tsppoints = []
     rows = ''
 
+    # Read everything from the file and put it in a list
     with (open(filename,'rU')) as f:
         for line in f:
             line = line.rstrip('\n')
             (lat,lon) = [numpy.float64(x) for x in line.split(',')]
             tsppoints.append((lat,lon))
 
-    tour = [i for i in range(len(tsppoints))]
-
+    # Create a matrix and fill it with distances based on all the possible combinations
     D = numpy.zeros((len(tsppoints),len(tsppoints)))
     for i in range(len(tsppoints)):
         for j in range(len(tsppoints)):
             D[i][j]=numpy.linalg.norm(numpy.subtract(tsppoints[i],tsppoints[j]))
 
-    tour = solve_tsp(D)
+    # Apply the greedy TSP to the distances and return a list of indices
+    tour = solve_tsp(D, startpt = args.startpt, finishpt=args.finishpt)
 
+    # Write everything to the file based on the indices
     f = open(filename, 'w')
     for i in tour:
         rows = tsppoints[i][0].astype(str) + ',' + tsppoints[i][1].astype(str) + '\n'
@@ -454,7 +456,7 @@ def main(args):
     else:
         print('Sorting coordinates...\n')
         try:
-            tspsolver(filename)
+            tspsolver(filename, args)
         except:
             print("Could not sort this many coordinates due to your system's limits.\n")
 
@@ -626,7 +628,7 @@ def createcircles(args):
     else:
         print('{} circles checked and {} circles with a {}m radius found in geofence(s). Sorting coordinates...\n'.format(numresults, rowcount, args.ccradius))
         try:
-            tspsolver(filename)
+            tspsolver(filename, args)
         except:
             print("Could not sort this many coordinates due to your system's limits.\n")
 
@@ -694,7 +696,6 @@ if __name__ == "__main__":
     gensets.add_argument('-cf', '--config', is_config_file=True, help='Set configuration file (defaults to ./config.ini).')
     gensets.add_argument('-geo', '--geofence', help='The name of the RDM quest instance to use as a geofence (required).')
     gensets.add_argument('-of', '--output', help='The base filename without extension to write cluster data to (defaults to outfile.txt).', default='outfile.txt')
-    gensets.add_argument('-ns', '--nosort', help='Do not sort the output from the search (defaults to false).', action='store_true', default=False)
 
     spawns = parser.add_argument_group('Spawnpoints')
     spawns.add_argument('-sp', '--spawnpoints', help='Have spawnpoints included in cluster search (defaults to false).', action='store_true', default=False)
@@ -722,11 +723,16 @@ if __name__ == "__main__":
 
     cc = parser.add_argument_group('Create Circles',description='Creates a list of lat,lon. Recognizes options General Settings. Sorting should be disabled.')
     cc.add_argument('-cc', '--circle', help='Create circles from a geofence instance. Requires -geo <name>. (defaults to false).', action='store_true', default=False)
-    cc.add_argument('-ccr', '--ccradius', help='Maximum radius (in meters) for the circle sizes (defaults to 70).', default=70)
+    cc.add_argument('-ccr', '--ccradius', type=float, help='Maximum radius (in meters) for the circle sizes (defaults to 70).', default=70)
 
     js = parser.add_argument_group('Sorting',description='No other options will be recognized for the below options.')
     js.add_argument('-js', '--justsort', help='Sorts the points in the given text file of lat,lon coordinates (defaults to false).', action='store_true', default=False)
     js.add_argument('-jsf', '--justsortfile', help='Specifies the file to be sorted (defaults to infile).', default='infile')
+
+    sort = parser.add_argument_group('Sort Settings')
+    sort.add_argument('-ns', '--nosort', help='Do not sort the output from the search (defaults to false).', action='store_true', default=False)
+    sort.add_argument('-spt', '--startpt', type=int, help='Specify the line index as an int of the coordinate you want TSP to keep as the starting point (defaults to None).', default=None)
+    sort.add_argument('-fpt', '--finishpt', type=int, help='Specify the line index as an int of the coordinate you want TSP to keep as the finishing point (defaults to None).', default=None)
 
     args = parser.parse_args()
 
@@ -736,7 +742,7 @@ if __name__ == "__main__":
     if args.justsort:
         print('Sorting coordinates...\n')
         try:
-            tspsolver(args.justsortfile)
+            tspsolver(args.justsortfile, args)
             print("Done!")
         except:
             print("Could not sort this many coordinates due to your system's limits.\n")
