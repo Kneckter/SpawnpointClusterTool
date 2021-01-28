@@ -710,7 +710,7 @@ if __name__ == "__main__":
     sng.add_argument('-mr', '--minraid', type=int, help='The minimum amount of gyms or pokestops to include in clusters that are written out (defaults to 1).', default=1)
     sng.add_argument('-rr', '--raidradius', type=float, help='Maximum radius (in meters) where gyms or pokestops are considered close (defaults to 500).', default=500)
 
-    s2c = parser.add_argument_group('S2Cells')
+    s2c = parser.add_argument_group('S2Cells',description='**Still a WIP**')
     s2c.add_argument('-s2c', '--s2cells', help='Have the S2Cells included in the cluster search (defaults to false).', action='store_true', default=False)
     s2c.add_argument('-s2l', '--s2level', type=float, help='Specify the level for the S2Cell (defaults to 15).', default=15)
     s2c.add_argument('-s2m', '--s2min', type=int, help='The minimum amount of S2Cell centers to include in clusters that are written out (defaults to 1).', default=1)

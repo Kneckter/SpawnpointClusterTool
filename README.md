@@ -42,6 +42,7 @@ Pokestop and Gym Settings
 '-rr', '--raidradius' - 'Maximum radius (in meters) where gyms or pokestops are considered close (defaults to 500).'
 
 S2Cell Settings
+**Still a WIP**
 '-s2c', '--s2cells' - 'Have the S2Cells included in the cluster search (defaults to false).'
 '-s2l', '--s2level' - 'Specify the level for the S2Cell (defaults to 15).'
 '-s2m', '--s2min' - 'The minimum amount of S2Cell centers to include in clusters that are written out (defaults to 1).'
