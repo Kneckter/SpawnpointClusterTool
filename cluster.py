@@ -480,9 +480,11 @@ def genivs(args):
     db.connect()
 
     with db:
+        date_sql = ' WHERE `date` >= DATE_SUB(CURRENT_DATE(),INTERVAL '+str(args.days)+' DAY) '
         cmd_sql = '''
             SELECT pokemon_id,SUM(`count`) AS `count`
             FROM pokemon_stats
+            '''+date_sql+'''
             GROUP BY pokemon_id
             ORDER BY `count` ASC;
             ''' 
@@ -720,6 +722,7 @@ if __name__ == "__main__":
     ivl.add_argument('-giv', '--genivlist', help='Skip all the normal functionality and just generate an IV list using RDM data (defaults to false).', action='store_true', default=False)
     ivl.add_argument('-mp', '--maxpoke', type=int, help='The maximum number to be used for the end of the IV list (defaults to 809).', default=809)
     ivl.add_argument('--excludepoke', help=('List of Pokemon to exclude from the IV list. Specified as Pokemon ID. Use this only in the config file (defaults to none).'), action='append', default=[])
+    ivl.add_argument('-d', '--days', help='Only include data from x days in the IV list\'s query. 0 for today, 1 for yesterday & today, etc. (defaults to 7).', default=7)
 
     cc = parser.add_argument_group('Create Circles',description='Creates a list of lat,lon. Recognizes options General Settings. Sorting should be disabled.')
     cc.add_argument('-cc', '--circle', help='Create circles from a geofence instance. Requires -geo <name>. (defaults to false).', action='store_true', default=False)
@@ -761,7 +764,6 @@ if __name__ == "__main__":
 
 # Maybe use the RDM API to write to an instance after the coordinates are sorted
 # Maybe add a geofence generator. If a geofence is generated, read it from the file to use it for clustering?
-# Maybe add a date range to the IV list generator
 
 # As reported by Hunch. He got this warning with MySQL 5.7
 # The warning is probably fine because it doesn't stop the queries.

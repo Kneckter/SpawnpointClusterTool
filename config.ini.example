@@ -1,50 +1,51 @@
 #Database Settings
-#db-name:                       # Name of the database to be used (required).'
-#db-user:                       # Username for the database (required).'
-#db-pass:                       # Password for the database (required).'
-#db-host:                       # IP or hostname for the database (defaults to 127.0.0.1).'
-#db-port:                       # Port for the database (defaults to 3306).'
+#db-name:                       # Name of the database to be used (required).
+#db-user:                       # Username for the database (required).
+#db-pass:                       # Password for the database (required).
+#db-host:                       # IP or hostname for the database (defaults to 127.0.0.1).
+#db-port:                       # Port for the database (defaults to 3306).
 
 #General Settings
-#geofence:                      # The name of the RDM quest instance to use as a geofence (required).')
-#output:                        # The base filename without extension to write cluster data to (defaults to outfile.txt).'
+#geofence:                      # The name of the RDM quest instance to use as a geofence (required).)
+#output:                        # The base filename without extension to write cluster data to (defaults to outfile.txt).
 
 #Spawnpoint Settings
-#spawnpoints                   # Have spawnpoints included in cluster search (defaults to false).'
-#radius:                        # Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).'
-#min:                           # The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).'
-#timers:                        # Choose whether to use confirmed spawn timers (yes), use unconfirmed timers (no), or all timers (all) (defaults to all).'
-#lastupdated:                   # Only use spawnpoints that were last updated in x days. Use 0 to disable this option (defaults to 0).'
+#spawnpoints                    # Have spawnpoints included in cluster search (defaults to false).
+#radius:                        # Maximum radius (in meters) where spawnpoints are considered close (defaults to 70).
+#min:                           # The minimum amount of spawnpoints to include in clusters that are written out (defaults to 3).
+#timers:                        # Choose whether to use confirmed spawn timers (yes), use unconfirmed timers (no), or all timers (all) (defaults to all).
+#lastupdated:                   # Only use spawnpoints that were last updated in x days. Use 0 to disable this option (defaults to 0).
 
 #Pokestop and Gym Settings
-#pokestops                     # Have pokestops included in the cluster search (defaults to false).'
-#gyms:                          # Have gyms included in the cluster search (defaults to false).'
-#minraid:                       # The minimum amount of gyms or pokestops to include in clusters that are written out (defaults to 1).'
-#raidradius:                    # Maximum radius (in meters) where gyms or pokestops are considered close (defaults to 500).'
+#pokestops                      # Have pokestops included in the cluster search (defaults to false).
+#gyms:                          # Have gyms included in the cluster search (defaults to false).
+#minraid:                       # The minimum amount of gyms or pokestops to include in clusters that are written out (defaults to 1).
+#raidradius:                    # Maximum radius (in meters) where gyms or pokestops are considered close (defaults to 500).
 
 #S2Cell Settings
-#s2cells                       # Have the S2Cells included in the cluster search (defaults to false).'
-#s2level:                       # Specify the level for the S2Cell (defaults to 15).'
-#s2min:                         # The minimum amount of S2Cell centers to include in clusters that are written out (defaults to 1).'
-#s2radius:                      # Maximum radius (in meters) where S2Cell centers are considered close (defaults to 500).'
+#s2cells                        # Have the S2Cells included in the cluster search (defaults to false).
+#s2level:                       # Specify the level for the S2Cell (defaults to 15).
+#s2min:                         # The minimum amount of S2Cell centers to include in clusters that are written out (defaults to 1).
+#s2radius:                      # Maximum radius (in meters) where S2Cell centers are considered close (defaults to 500).
 
 #IV List Settings
-#No cluster options will be recognized for the below options.
-#genivlist                     # Skip all the normal functionality and just generate an IV list using RDM data (defaults to false).'
-#maxpoke:                       # The maximum number to be used for the end of the IV list (defaults to 809).'
-#excludepoke:                   # List of Pokemon to exclude from the IV list. Specified as Pokemon ID. Use this only in the config file (defaults to none).'
+# No cluster options will be recognized for the below options.
+#genivlist                      # Skip all the normal functionality and just generate an IV list using RDM data (defaults to false).
+#maxpoke:                       # The maximum number to be used for the end of the IV list (defaults to 809).
+#excludepoke:                   # List of Pokemon to exclude from the IV list. Specified as Pokemon ID. Use this only in the config file (defaults to none).
+#days:                          # Only include data from x days in the IV list's query. 0 for today, 1 for yesterday & today, etc. (defaults to 7).
 
 #Create Circles Settings
-#Creates a list of lat,lon. Recognizes options General Settings. Sorting should be disabled.
-#circle                        # Create circles from a geofence instance. Requires -geo <name>. (defaults to false).'
-#ccradius:                      # Maximum radius (in meters) for the circle sizes (defaults to 70).'
+# Creates a list of lat,lon. Recognizes options General Settings. Sorting should be disabled.
+#circle                         # Create circles from a geofence instance. Requires -geo <name>. (defaults to false).
+#ccradius:                      # Maximum radius (in meters) for the circle sizes (defaults to 70).
 
 #Just Sorting
-#No other options will be recognized for the below options.
-#justsort                      # Sorts the points in the given text file of lat,lon coordinates (defaults to false).'
-#justsortfile:                  # Specifies the file to be sorted (defaults to infile).'
+# No other options will be recognized for the below options.
+#justsort                       # Sorts the points in the given text file of lat,lon coordinates (defaults to false).
+#justsortfile:                  # Specifies the file to be sorted (defaults to infile).
 
 #Sort Settings
-#nosort                        # Do not sort the output from the search (defaults to false).'
-#startpt:                       # Specify the line index as an int of the coordinate you want TSP to keep as the starting point (defaults to None).'
-#finishpt:                      # Specify the line index as an int of the coordinate you want TSP to keep as the finishing point (defaults to None).'
+#nosort                         # Do not sort the output from the search (defaults to false).
+#startpt:                       # Specify the line index as an int of the coordinate you want TSP to keep as the starting point (defaults to None).
+#finishpt:                      # Specify the line index as an int of the coordinate you want TSP to keep as the finishing point (defaults to None).
