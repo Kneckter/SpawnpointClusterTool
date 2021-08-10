@@ -460,8 +460,13 @@ def main(args):
         except:
             print("Could not sort this many coordinates due to your system's limits.\n")
 
+    if args.save_query:
+        saveclusters(db, filename, args)
+        print('Coordinates written to the database.')
+    else:
+        print('Coordinates written to the {} file.'.format(filename))
+
     end_time = time.time()
-    print('Coordinates written to the {} file.'.format(filename))
     print('Completed in {:.2f} seconds.\n'.format(end_time - start_time))
 
     # Done with the geofences, close it down
@@ -683,8 +688,13 @@ def createcircles(args):
         except:
             print("Could not sort this many coordinates due to your system's limits.\n")
 
+    if args.save_query:
+        saveclusters(db, filename, args)
+        print('Circle coordinates written to the database')
+    else:
+        print('Circle coordinates written to the {} file.'.format(filename))
+
     end_time = time.time()
-    print('Circle coordinates written to the {} file.'.format(filename))
     print('Completed in {:.2f} seconds.\n'.format(end_time - start_time))
 
     # Done with the geofences, close it down
@@ -727,6 +737,69 @@ def s2cellpoints(geofences, args):
             if point not in points:
                 points.append(point)
     return points
+
+def saveclusters(db, filename, args):
+    # Write information to the DB for clusters.
+    instances = args.save_cp.split(", ")
+    numinsts = len(instances)
+    rows = []
+    row = ""
+    with (open(filename,'rU')) as f:
+        numlines = len(f.readlines())
+    f.close()
+    if numinsts > 1:
+        print("Splitting {} clusters across {} instances...".format(numlines,numinsts))
+
+    # Read everything from the file and put it in a string for the SQL
+    with (open(filename,'rU')) as f:
+        ctr = 0
+        for idx, line in enumerate(f):
+            line = line.rstrip('\n')
+            lat,lon = [str(x) for x in line.split(',')]
+            if idx-ctr >= (numlines-1)/numinsts:
+                rows.append(row)
+                row = ""
+                ctr = idx
+            if row == "":
+                row = "JSON_OBJECT(\"lat\", "+lat+", \"lon\", "+lon+")"
+            else:
+                row = row + ",JSON_OBJECT(\"lat\", "+lat+", \"lon\", "+lon+")"
+            if idx == numlines-1:
+                rows.append(row)
+                row = ""
+    f.close()
+
+    for idx, instance in enumerate(instances):
+        cmd_sql = '''SELECT type FROM instance WHERE name = '%s';''' % instance
+        inttype = db.execute_sql(cmd_sql)
+        inttypesql = inttype.fetchone()
+
+        try:
+            temp = inttypesql[0] # Get the first item in the tuple and convert it to json
+        except:
+            print('No instance found with name {}.'.format(instance))
+            sys.exit(1)
+
+        if inttypesql[0] == 'circle_pokemon' or inttypesql[0] == 'circle_raid' or inttypesql[0] == 'circle_smart_pokemon' or inttypesql[0] == 'circle_smart_raid':
+            print('Updating cluster circle list for {}.'.format(instance))
+            cmd_sql = '''UPDATE instance SET data = JSON_SET(data, '$.area', JSON_ARRAY(%(clu)s)) WHERE name = '%(ins)s';''' % {'clu':rows[idx], 'ins': instance}
+            updateOutput = db.execute_sql(cmd_sql)
+            db.commit()
+            #JSON_OBJECT("lat", 50.7168364771429, "lon", 10.4136298762618),JSON_OBJECT("lat", 50.7168364771428, "lon", 10.4136298762617)
+        else:
+            print('{} is not a cluster circle instance.'.format(instance))
+            sys.exit(1)
+
+    print('Cluster list saved to the database.\n')
+
+    # Use RDM API to restart all instances
+    print('Restarting RDM instances.')
+    resp = requests.get(args.save_backend+"api/get_data?reload_instances=true", auth=(args.save_un,args.save_pw))
+    try:
+        data = resp.json()
+    except:
+        data = str(resp)
+    print('Site response: {}\n'.format(data))
 
 if __name__ == "__main__":
 
@@ -838,8 +911,6 @@ if __name__ == "__main__":
 
     main(args)
 
-# Maybe use the RDM API to write to an instance after the coordinates are sorted
-#   For clusters/cc, specifying multiple instances should split the clusters
 # Maybe add a geofence generator. If a geofence is generated, read it from the file to use it for clustering?
 
 # As reported by Hunch. He got this warning with MySQL 5.7

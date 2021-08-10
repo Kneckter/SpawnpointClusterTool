@@ -69,6 +69,15 @@ Sort Settings
 '-ns', '--nosort' - 'Do not sort the output from the search (defaults to false).'
 '-spt', '--startpt' - 'Specify the line index as an int of the coordinate you want TSP to keep as the starting point (defaults to None).'
 '-fpt', '--finishpt' - 'Specify the line index as an int of the coordinate you want TSP to keep as the finishing point (defaults to None).'
+
+Saving to the DB Settings
+These settings are all optional and update the DB instead of outputting to a file when used.
+'-squ', '--save-query' - 'Save the query results to the DB and requires the below options (defaults to false).'
+'-sbe', '--save-backend' - 'URL to RDM site (defaults to http://127.0.0.1:9000/).'
+'-sun', '--save-un' - 'Username for the RDM site (no default).'
+'-spw', '--save-pw' - 'Password for the RDM site (no default).'
+'-siv', '--save-iv' - 'The name of the IV instance(s) to save the list to. ALL for all IV instances, one name, or multiple names separated by commas like "IV1, IV2", use the quotes. (defaults to ALL).'
+'-scp', '--save-cp' - 'The name of the Circle Pokemon/Raid instance(s) to save the list to. One name or multiple names separated by commas like "Poke1, Poke2", use the quotes. When using multiple instances, the list will be split evenly between them. (defaults to none).'
 ```
 
 You must specify an instance to use in the `geofence` parameter so the script can search for it. Instances with multiple geofences are acceptable. The script will read and apply each geofence to the query.
