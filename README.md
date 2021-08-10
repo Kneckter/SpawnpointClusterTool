@@ -51,7 +51,7 @@ S2Cell Settings
 IV List Settings
 No cluster options will be recognized for the below options.
 '-giv', '--genivlist' - 'Skip all the normal functionality and just generate an IV list using RDM data (defaults to false).'
-'-mp', '--maxpoke' - 'The maximum number to be used for the end of the IV list (defaults to 809).'
+'-mp', '--maxpoke' - 'The maximum number to be used for the end of the IV list (defaults to 890).'
 '--excludepoke' - 'List of Pokemon to exclude from the IV list. Specified as Pokemon ID. Use this only in the config file (defaults to none).'
 '-d', '--days' - 'Only include data from x days in the IV list's query. 0 for today, 1 for yesterday & today, etc. (defaults to 7).'
 
