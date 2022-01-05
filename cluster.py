@@ -566,7 +566,7 @@ def genivs(args):
 
             # Use RDM API to restart all instances
             print('Restarting RDM instances.')
-            resp = requests.get(args.save_backend+"api/get_data?reload_instances=true", auth=(args.save_un,args.save_pw))
+            resp = requests.get(args.save_backend+"api/set_data?reload_instances=true", auth=(args.save_un,args.save_pw))
             try:
                 data = resp.json()
             except:
