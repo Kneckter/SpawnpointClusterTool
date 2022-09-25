@@ -252,7 +252,7 @@ def tspsolver(filename, args):
     rows = ''
 
     # Read everything from the file and put it in a list
-    with (open(filename,'rU')) as f:
+    with (open(filename,'r')) as f:
         for line in f:
             line = line.rstrip('\n')
             (lat,lon) = [numpy.float64(x) for x in line.split(',')]
