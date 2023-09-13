@@ -1,13 +1,11 @@
-import configargparse,time,sys,os,peewee,json,numpy,matplotlib,geopy,s2sphere,multiprocessing,requests
+import configargparse,time,sys,os,peewee,json,numpy,geopy,s2sphere,multiprocessing,requests
 from math import radians, sin, cos, acos, sqrt
 from tsp_solver import solve_tsp
-from geopy import distance
 from matplotlib.path import Path
-from multiprocessing.managers import BaseManager, SyncManager
-
-manager = SyncManager()
+from multiprocessing.managers import SyncManager
 
 def pointDistance(pos1, pos2):
+    # Earth radius in meters
     R = 6378137.0
     if pos1 == pos2:
         return 0.0
@@ -39,11 +37,15 @@ def cluster(points, radius, maxClusterList, ms):
     mpPoints = points
     mpRadius = radius
     mpMS = ms
+    manager = SyncManager()
+    manager.start()
     clustersList = manager.list()
     pool = multiprocessing.Pool(processes=len(os.sched_getaffinity(0)))
     pool.map(getMpPoints, points)
     staticClustersList = clustersList._getvalue()
     pool.map(rmSmallClusters, staticClustersList)
+    pool.close()
+    pool.join()
     if len(clustersList) > 0:
         maxCluster = max(clustersList, key=len)
         print("The max cluster seen was {}.".format(len(maxCluster)-1))
@@ -61,8 +63,7 @@ def cluster(points, radius, maxClusterList, ms):
             for item in longestList:
                 if type(item[0]) is str:
                     maxClusterList.append(item[1])
-                else:
-                    rmLongestList(item, ms)
+                rmLongestList(item, ms)
 #                    staticClustersList = clustersList._getvalue()
 #                    for cluster in staticClustersList:
 #                        cluster.append(item)
@@ -70,9 +71,8 @@ def cluster(points, radius, maxClusterList, ms):
         else:
             done = 1
 #        print('Completed one cluster in {} seconds.\n'.format(time.time() - start_time))
+    manager.shutdown()
 
-    pool.close()
-    pool.join()
     return maxClusterList
 
 def getMpPoints(point):
@@ -252,7 +252,7 @@ def tspsolver(filename, args):
     rows = ''
 
     # Read everything from the file and put it in a list
-    with (open(filename,'rU')) as f:
+    with (open(filename,'r')) as f:
         for line in f:
             line = line.rstrip('\n')
             (lat,lon) = [numpy.float64(x) for x in line.split(',')]
@@ -343,7 +343,8 @@ def main(args):
     print('Gatherng points from {} geofence(s)...\n'.format(len(geofences)))
 
     spawnpointssql,pokestoppointssql,gympointssql = getPoints(geofences, db, args)
-    manager.start()
+    # Close the DB while we process data
+    db.close()
 
     if args.spawnpoints:
         points = spawnpointssql.fetchall()
@@ -566,7 +567,7 @@ def genivs(args):
 
             # Use RDM API to restart all instances
             print('Restarting RDM instances.')
-            resp = requests.get(args.save_backend+"api/get_data?reload_instances=true", auth=(args.save_un,args.save_pw))
+            resp = requests.get(args.save_backend+"api/set_data?reload_instances=true", auth=(args.save_un,args.save_pw))
             try:
                 data = resp.json()
             except:
@@ -605,6 +606,9 @@ def createcircles(args):
         print('No data was returned for the instance name {}.'.format(args.geofence))
         sys.exit(1)
 
+    # Close the DB for now, this can take a while
+    db.close()
+
     centroid = []
     maxdistance = []
     i=0
@@ -624,7 +628,7 @@ def createcircles(args):
         # Calculate the max distance from the edge so we can set the step limit
         maxdistance.append(0)
         for p in fence:
-            dist = geopy.distance.vincenty(centroid[i], (p['lat'],p['lon'])).m
+            dist = geopy.distance.geodesic(centroid[i], (p['lat'],p['lon'])).m
             if dist > maxdistance[i]:
                 maxdistance[i] = dist
         i=i+1
@@ -662,9 +666,9 @@ def createcircles(args):
                     # current ring
                     loc = get_new_coords(star_loc, xdist * (j), 210 + 60 * i)
                     results.append((loc[0], loc[1]))
-
-        numresults = numresults + len(results)
-        endresults.append(get_geofenced_coordinates(results, fence, step_distance))
+                numresults = numresults + len(results)
+                endresults.append(get_geofenced_coordinates(results, fence, step_distance))
+                results = []
 
     #write to the file. They should already be sorted
     rows = ''
@@ -744,14 +748,14 @@ def saveclusters(db, filename, args):
     numinsts = len(instances)
     rows = []
     row = ""
-    with (open(filename,'rU')) as f:
+    with (open(filename,'r')) as f:
         numlines = len(f.readlines())
     f.close()
     if numinsts > 1:
         print("Splitting {} clusters across {} instances...".format(numlines,numinsts))
 
     # Read everything from the file and put it in a string for the SQL
-    with (open(filename,'rU')) as f:
+    with (open(filename,'r')) as f:
         ctr = 0
         for idx, line in enumerate(f):
             line = line.rstrip('\n')
@@ -768,6 +772,9 @@ def saveclusters(db, filename, args):
                 rows.append(row)
                 row = ""
     f.close()
+
+    # Reconnect the DB 
+    db.connect()
 
     for idx, instance in enumerate(instances):
         cmd_sql = '''SELECT type FROM instance WHERE name = '%s';''' % instance
@@ -794,7 +801,7 @@ def saveclusters(db, filename, args):
 
     # Use RDM API to restart all instances
     print('Restarting RDM instances.')
-    resp = requests.get(args.save_backend+"api/get_data?reload_instances=true", auth=(args.save_un,args.save_pw))
+    resp = requests.get(args.save_backend+"api/set_data?reload_instances=true", auth=(args.save_un,args.save_pw))
     try:
         data = resp.json()
     except:

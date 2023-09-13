@@ -8,7 +8,7 @@ This script was written with Python3.6.
 
 To get started using the python script, you can download the files or `git clone https://github.com/Kneckter/SpawnpointClusterTool` this repository.
 
-You will need a few Python3 modules to run this script so run this command: `sudo -H pip3 install -U configargparse==0.14.0 peewee==3.9.6 matplotlib==3.1.1 PyMySQL==0.9.3 geopy==1.20.0 s2sphere==0.2.5`
+You will need a few Python3 modules to run this script so run this command: `sudo -H pip3 install -r requirements.txt`
 
 You do not need to create lists of coordinate pairs, this tool has settings to connect to your database and read a geofence that is part of a questing instance. 
 Make a copy of the `config.ini.example` and rename it as `config.ini`. Fill in the database settings for your RDM database.
@@ -87,6 +87,6 @@ If searching for clusters, you must choose to include either spawnpoints, gyms, 
 Once you have the config file on your system you can run the command `python3 cluster.py` to to have it evaluate the coordinates, sort them by TSP, and output them to outfile file.
 
 ## Notes
-This has been tested on Ubuntu 18.04. 
+This has been tested on Ubuntu 20.04. 
 
 Thanks to https://github.com/dmishin/tsp-solver for the original TSP code. We have diverged slightly since then.
