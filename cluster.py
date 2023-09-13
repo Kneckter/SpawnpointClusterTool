@@ -170,7 +170,7 @@ def getPoints(geofences, db, args):
 
         if args.lastupdated > 0:
             updatetimer = time.time() - (args.lastupdated * 3600 * 24)
-            scmd_sql = scmd_sql + ' updated > %s AND ' % updatetimer
+            scmd_sql = scmd_sql + ' last_seen > %s AND ' % updatetimer
 
         scmd_sql = scmd_sql + ' ('
 
