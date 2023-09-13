@@ -1,4 +1,4 @@
-import configargparse,time,sys,os,peewee,json,numpy,geopy,s2sphere,multiprocessing,requests
+import configargparse,time,sys,os,peewee,json,numpy,geopy,s2sphere,multiprocessing,requests,platform
 from math import radians, sin, cos, acos, sqrt
 from tsp_solver import solve_tsp
 from matplotlib.path import Path
@@ -40,7 +40,10 @@ def cluster(points, radius, maxClusterList, ms):
     manager = SyncManager()
     manager.start()
     clustersList = manager.list()
-    pool = multiprocessing.Pool(processes=len(os.sched_getaffinity(0)))
+    if platform.system() == 'Linux':
+        pool = multiprocessing.pool.ThreadPool(processes=len(os.sched_getaffinity(0)))
+    else:
+        pool = multiprocessing.pool.ThreadPool(processes=os.cpu_count())
     pool.map(getMpPoints, points)
     staticClustersList = clustersList._getvalue()
     pool.map(rmSmallClusters, staticClustersList)
