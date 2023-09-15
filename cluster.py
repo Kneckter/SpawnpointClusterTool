@@ -3,6 +3,7 @@ from math import radians, sin, cos, acos, sqrt
 from tsp_solver import solve_tsp
 from matplotlib.path import Path
 from multiprocessing.managers import SyncManager
+from geopy import distance
 
 def pointDistance(pos1, pos2):
     # Earth radius in meters
@@ -283,7 +284,7 @@ def get_new_coords(init_loc, distance, bearing):
     return (destination.latitude, destination.longitude)
 
 def get_geofenced_coordinates(coordinates, geofenced_areas, step_distance):
-    print('Found {} circles that cover the geofenced area. Removing the ones outside the geofence...\n'.format(len(coordinates)))
+    #print('Found {} circles that cover the geofenced area. Removing the ones outside the geofence...\n'.format(len(coordinates)))
     geofenced_coordinates = []
     for c in coordinates:
         # Coordinate is geofenced if in one geofenced area.
