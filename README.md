@@ -27,6 +27,7 @@ General Settings
 '-cf', '--config' - 'Set configuration file (defaults to ./config.ini).'
 '-geo', '--geofence' - 'The name of the RDM quest instance to use as a geofence (required).'
 '-of', '--output' - 'The base filename without extension to write cluster data to (defaults to outfile.txt).'
+'-ml', '--maxlist' - 'The maximum amount of clusters you want to output (defaults to 900).'
 
 Spawnpoint Settings
 '-sp', '--spawnpoints' - 'Have spawnpoints included in cluster search (defaults to false).'

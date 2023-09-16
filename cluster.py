@@ -23,7 +23,7 @@ def pointDistance(pos1, pos2):
 
     return acos(a) * R
     
-def cluster(points, radius, maxClusterList, ms):
+def cluster(points, radius, maxClusterList, ms, ml):
     if len(maxClusterList) > 0:
         ii = 0
         while ii < len(points):
@@ -62,7 +62,7 @@ def cluster(points, radius, maxClusterList, ms):
         start_time = time.time()
 #        print(len(clustersList))
         longestList = max(clustersList, key=len)
-        if len(longestList)-1 >= ms and len(longestList)-1 > 0:
+        if len(longestList)-1 >= ms and len(longestList)-1 > 0 and len(maxClusterList) < ml:
             clustersList.remove(longestList)
             for item in longestList:
                 if type(item[0]) is str:
@@ -359,7 +359,7 @@ def main(args):
                 rows.append(p)
 
         print('Processing', len(rows), 'spawnpoints...')
-        clusters = cluster(rows, args.radius, [], args.min)
+        clusters = cluster(rows, args.radius, [], args.min, args.maxlist)
 
         rowcount = 0
         f = open(filename, 'w')
@@ -380,7 +380,7 @@ def main(args):
                 rows.append(p)
 
         print('Processing', len(rows), 'pokestops...')
-        clusters = cluster(rows, args.raidradius, mspoints, args.minraid)
+        clusters = cluster(rows, args.raidradius, mspoints, args.minraid, args.maxlist)
 
         mspoints = []
         rowcount = 0
@@ -405,7 +405,7 @@ def main(args):
                 rows.append(p)
 
         print('Processing', len(rows), 'gyms...')
-        clusters = cluster(rows, args.raidradius, mspoints, args.minraid)
+        clusters = cluster(rows, args.raidradius, mspoints, args.minraid, args.maxlist)
 
         mspoints = []
         rowcount = 0
@@ -430,7 +430,7 @@ def main(args):
         points = s2cellpoints(geofences, args)
 
         print('Processing', len(points), 'S2Cells...')
-        clusters = cluster(points, args.s2radius, mspoints, args.s2min)
+        clusters = cluster(points, args.s2radius, mspoints, args.s2min, args.maxlist)
 
         rowcount = 0
         f = open(filename, 'w')
@@ -764,7 +764,7 @@ def saveclusters(db, filename, args):
         for idx, line in enumerate(f):
             line = line.rstrip('\n')
             lat,lon = [str(x) for x in line.split(',')]
-            if idx-ctr >= (numlines-1)/numinsts:
+            if idx-ctr > (numlines-1)/numinsts:
                 rows.append(row)
                 row = ""
                 ctr = idx
@@ -831,6 +831,7 @@ if __name__ == "__main__":
     gensets.add_argument('-cf', '--config', is_config_file=True, help='Set configuration file (defaults to ./config.ini).')
     gensets.add_argument('-geo', '--geofence', help='The name of the RDM quest instance to use as a geofence (required).')
     gensets.add_argument('-of', '--output', help='The base filename without extension to write cluster data to (defaults to outfile.txt).', default='outfile.txt')
+    gensets.add_argument('-ml', '--maxlist', type=int, help='The maximum amount of clusters you want to output (defaults to 900).', default=900)
 
     spawns = parser.add_argument_group('Spawnpoints')
     spawns.add_argument('-sp', '--spawnpoints', help='Have spawnpoints included in cluster search (defaults to false).', action='store_true', default=False)

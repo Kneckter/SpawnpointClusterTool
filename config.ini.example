@@ -8,6 +8,7 @@
 #General Settings
 #geofence:                      # The name of the RDM quest instance to use as a geofence (required).)
 #output:                        # The base filename without extension to write cluster data to (defaults to outfile.txt).
+#maxlist:                       # The maximum amount of clusters you want to output (defaults to 900).
 
 #Spawnpoint Settings
 #spawnpoints                    # Have spawnpoints included in cluster search (defaults to false).
