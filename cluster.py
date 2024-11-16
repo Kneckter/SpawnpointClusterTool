@@ -1,5 +1,5 @@
 import configargparse,time,sys,os,peewee,json,numpy,geopy,s2sphere,multiprocessing,requests,platform
-from math import radians, sin, cos, acos, sqrt
+from math import radians, sin, cos, acos, sqrt, trunc
 from tsp_solver import solve_tsp
 from matplotlib.path import Path
 from multiprocessing.managers import SyncManager
@@ -42,14 +42,13 @@ def cluster(points, radius, maxClusterList, ms, ml):
     manager.start()
     clustersList = manager.list()
     if platform.system() == 'Linux':
-        pool = multiprocessing.pool.ThreadPool(processes=len(os.sched_getaffinity(0)))
+        processes=len(os.sched_getaffinity(0))
     else:
-        pool = multiprocessing.pool.ThreadPool(processes=os.cpu_count())
+        processes=os.cpu_count()
+    pool = multiprocessing.pool.ThreadPool(processes)
     pool.map(getMpPoints, points)
     staticClustersList = clustersList._getvalue()
     pool.map(rmSmallClusters, staticClustersList)
-    pool.close()
-    pool.join()
     if len(clustersList) > 0:
         maxCluster = max(clustersList, key=len)
         print("The max cluster seen was {}.".format(len(maxCluster)-1))
@@ -59,22 +58,20 @@ def cluster(points, radius, maxClusterList, ms, ml):
         done = 1
     clustersList = clustersList._getvalue()
     while len(clustersList) > 0 and done == 0:
-        start_time = time.time()
-#        print(len(clustersList))
+#        start_time = time.time()
         longestList = max(clustersList, key=len)
         if len(longestList)-1 >= ms and len(longestList)-1 > 0 and len(maxClusterList) < ml:
             clustersList.remove(longestList)
             for item in longestList:
                 if type(item[0]) is str:
                     maxClusterList.append(item[1])
-                rmLongestList(item, ms)
-#                    staticClustersList = clustersList._getvalue()
-#                    for cluster in staticClustersList:
-#                        cluster.append(item)
-#                    pool.map(rmMpLongestList, staticClustersList)
+#                rmLongestList(item, ms)
+            pool.map(rmMpLongestList, longestList)
         else:
             done = 1
 #        print('Completed one cluster in {} seconds.\n'.format(time.time() - start_time))
+    pool.close()
+    pool.join()
     manager.shutdown()
 
     return maxClusterList
@@ -97,18 +94,19 @@ def rmSmallClusters(cluster):
     if len(cluster)-1 < mpMS:
         clustersList.remove(cluster)
 
-def rmMpLongestList(cluster):
+def rmMpLongestList(item):
     global clustersList
-    item = cluster.pop()
-    if len(cluster)-1 < mpMS:
-        clustersList.remove(cluster)
-    else:
-        for cpoint in cluster:
-            if type(cpoint[0]) is not str and item == cpoint:
+    for cluster in clustersList:
+        if len(cluster)-1 < mpMS:
+            try:
                 clustersList.remove(cluster)
-                cluster.remove(cpoint)
-                clustersList.append(cluster)
-                break
+            except:
+                continue
+        else:
+            for cpoint in cluster:
+                if type(cpoint[0]) is not str and item == cpoint:
+                    cluster.remove(cpoint)
+                    break
 
 def rmLongestList(item, ms):
     global clustersList
@@ -124,12 +122,12 @@ def rmLongestList(item, ms):
 def getInstance(db):
     with db:
         cmd_sql = '''
-            SELECT type
-            FROM instance
+            SELECT name
+            FROM dragonitev1.area
             WHERE name = '%s';
             ''' % args.geofence
-        inttype = db.execute_sql(cmd_sql)
-        inttypesql = inttype.fetchone()
+        rowname = db.execute_sql(cmd_sql)
+        inttypesql = rowname.fetchone()
 
         try:
             datajson = inttypesql[0] # Get the first item in the tuple and convert it to json
@@ -137,22 +135,21 @@ def getInstance(db):
             print('No instance found with name {}.'.format(args.geofence))
             sys.exit(1)
 
-        if inttypesql[0] == 'auto_quest' or  inttypesql[0] == 'pokemon_iv':
-            cmd_sql = '''
-                SELECT data
-                FROM instance
-                WHERE name = '%s';
-                ''' % args.geofence
-            instance = db.execute_sql(cmd_sql)
-            return instance
-        else:
-            print('{} is not a geofence instance (quest or IV).'.format(args.geofence))
-            sys.exit(1)
+        cmd_sql = '''
+            SELECT geofence as data 
+            FROM dragonitev1.area
+            WHERE name = '%s';
+            ''' % args.geofence
+        instance = db.execute_sql(cmd_sql)
+        return instance
 
-def getPoints(geofences, db, args):
+def getPoints(g, db, args):
     scmd_sql=''
     pcmd_sql=''
     gcmd_sql=''
+    spawnpointssql=''
+    pokestoppointssql=''
+    gympointssql=''
     j=1
 
     if args.spawnpoints:
@@ -192,61 +189,32 @@ def getPoints(geofences, db, args):
             WHERE (
             '''
 
-    for g in geofences:
-    # Loop through the geofences
-        numcoords = len(g) # Get the number of coordinates in this geofence
-        i=1
-        coordstr=''
-        for c in g:
-            # Loop through the coordinates in each geofence and build the string for the query
-            if i < numcoords:
-                coord = str(c['lat'])+' '+str(c['lon'])+',\n'
-                i=i+1
-            else:
-                coord = str(c['lat'])+' '+str(c['lon'])
-            coordstr = coordstr + coord
+    coord_sql = '''
+        ST_CONTAINS(
+        ST_GEOMFROMTEXT('POLYGON((
+        %s
+        ''' % g
 
-        if j == 1:
-            coord_sql = '''
-                ST_CONTAINS(
-                ST_GEOMFROMTEXT('POLYGON((
-                %s
-                ''' % coordstr
-            j=j+1
-        else:
-            coord_sql = '''
-                OR ST_CONTAINS(
-                ST_GEOMFROMTEXT('POLYGON((
-                %s
-                ''' % coordstr
+    scmd_sql = scmd_sql + coord_sql + "))'), point(spawnpoint.lat, spawnpoint.lon)) );"
+    pcmd_sql = pcmd_sql + coord_sql + "))'), point(pokestop.lat, pokestop.lon)) );"
+    gcmd_sql = gcmd_sql + coord_sql + "))'), point(gym.lat, gym.lon)) );"
 
-        scmd_sql = scmd_sql + coord_sql + "))'), point(spawnpoint.lat, spawnpoint.lon)) "
-        pcmd_sql = pcmd_sql + coord_sql + "))'), point(pokestop.lat, pokestop.lon)) "
-        gcmd_sql = gcmd_sql + coord_sql + "))'), point(gym.lat, gym.lon)) "
-
-    scmd_sql = scmd_sql + ");"
-    pcmd_sql = pcmd_sql + ");"
-    gcmd_sql = gcmd_sql + ");"
-
-    try:
-        spawnpointssql = db.execute_sql(scmd_sql)
-    except:
-        spawnpointssql=''
-        if args.spawnpoints:
+    if args.spawnpoints:
+        try:
+            spawnpointssql = db.execute_sql(scmd_sql)
+        except:
             print('Failed to execute query for spawnpoints')
 
-    try:
-        pokestoppointssql = db.execute_sql(pcmd_sql)
-    except:
-        pokestoppointssql=''
-        if args.pokestops:
+    if args.pokestops:
+        try:
+            pokestoppointssql = db.execute_sql(pcmd_sql)
+        except:
             print('Failed to execute query for pokestops')
 
-    try:
-        gympointssql = db.execute_sql(gcmd_sql)
-    except:
-        gympointssql=''
-        if args.gyms:
+    if args.gyms:
+        try:
+            gympointssql = db.execute_sql(gcmd_sql)
+        except:
             print('Failed to execute query for gyms')
 
     return spawnpointssql,pokestoppointssql,gympointssql
@@ -331,22 +299,21 @@ def main(args):
     # Get the instance from args and query the DB for spawnpoints
     instance = getInstance(db)
     instancesql = instance.fetchone() # Get the first row in the cursor object
+    instancestr = instancesql[0]
     try:
-        datajson = json.loads(instancesql[0]) # Get the first item in the tuple and convert it to json
+        splitpoints = instancestr.split(',')
     except:
         print('No data was returned for the instance name {}.'.format(args.geofence))
         sys.exit(1)
 
-    geofences = datajson['area'] # Get the geofence(s) from the json
-    for fence in geofences:
-        firstpt = fence[0]
-        lastpt = fence[len(fence)-1]
-        if firstpt != lastpt:
-            fence.append(firstpt)
-            print('Updated last point in geofence to match the first point')
-    print('Gatherng points from {} geofence(s)...\n'.format(len(geofences)))
+    firstpt = splitpoints[0]
+    lastpt = splitpoints[len(splitpoints)-1]
+    if firstpt != lastpt:
+        instancestr += ","+firstpt
+        print('Updated last point in geofence to match the first point')
+    print('Gatherng points from {} geofence(s)...\n'.format(len(instancesql)))
 
-    spawnpointssql,pokestoppointssql,gympointssql = getPoints(geofences, db, args)
+    spawnpointssql,pokestoppointssql,gympointssql = getPoints(instancestr, db, args)
     # Close the DB while we process data
     db.close()
 
@@ -804,13 +771,13 @@ def saveclusters(db, filename, args):
     print('Cluster list saved to the database.\n')
 
     # Use RDM API to restart all instances
-    print('Restarting RDM instances.')
-    resp = requests.get(args.save_backend+"api/set_data?reload_instances=true", auth=(args.save_un,args.save_pw))
-    try:
-        data = resp.json()
-    except:
-        data = str(resp)
-    print('Site response: {}\n'.format(data))
+    # print('Restarting RDM instances.')
+    # resp = requests.get(args.save_backend+"api/set_data?reload_instances=true", auth=(args.save_un,args.save_pw))
+    # try:
+    #     data = resp.json()
+    # except:
+    #     data = str(resp)
+    # print('Site response: {}\n'.format(data))
 
 if __name__ == "__main__":
 
